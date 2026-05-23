@@ -12,7 +12,10 @@
     "ingest:test": "npm run build && node scripts/ingest-fixture.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "test:storage": "node --import tsx --test tests/storage.test.ts"
+    "test:storage": "node --import tsx --test tests/storage.test.ts",
+    "test:bot": "node --import tsx --test tests/bot.test.ts",
+    "test:all": "node --import tsx --test tests/storage.test.ts tests/scoring.test.ts tests/bot.test.ts",
+    "test": "npm run test:all"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

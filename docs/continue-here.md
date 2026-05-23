@@ -1,24 +1,16 @@
 # Continue Here
 
-## Current State
+## 2026-05-23
 
-The project has been initialized and the first four blocks are complete:
-- **Block 01**: Shell TypeScript project configured, `.env` loading, validation, and `/ping` commands registered.
-- **Block 02**: Feed fetching, RSS parser, and normalization to `NormalizedEvent` implemented.
-- **Block 03**: SQLite storage and Prisma schema setup, optimized database-level, topic-scoped deduplication checks, and repository persistence.
-- **Block 04**: Deterministic relevance scoring (word boundary plus plural suffix matching, binary keyword scoring, trusted source boosts, penalties for missing URLs or blocked terms) and eligibility filtering implemented and verified via unit tests.
+Current state:
+- Completed Block 03 (SQLite Dedupe Storage), Block 04 (Scoring and Filtering), and Block 05 (Discord Embeds).
+- Implemented article embed formatting and channel publishing using Discord.js.
+- Added support for development-mode debug footers, automated mock tests, and a live manual runner with fallback text channel resolution.
+- All typechecks and unit tests (`tests/storage.test.ts`, `tests/scoring.test.ts`, and `tests/bot.test.ts`) are passing cleanly.
 
-Database migrations are run against `dev.db`, and verification is backed by a native test suite running isolated checks under `tests/storage.test.ts` and `tests/scoring.test.ts`.
+Next step:
+- Implement Block 06: Scheduled Polling (`docs/blocks/block-06-scheduled-polling.md`), using `node-cron` with `POLL_CRON` to fetch, normalize, dedupe, score, filter, publish, and persist article events on a schedule.
 
-## Next Recommended Step
-
-Implement `docs/blocks/block-05-discord-embeds.md`.
-
-This block will introduce the formatting of normalized news events into Discord embed objects and posting them to designated channel IDs.
-
-## Important Links
-
-- `docs/project-charter.md`
-- `docs/blocks/README.md`
-- `docs/blocks/block-05-discord-embeds.md`
-
+Do-not-forget checks:
+- Feed failures must be caught gracefully so that one failing RSS feed does not stop other sources or topics from processing.
+- Logs should print checked, new, skipped, and posted counts per topic for each run.

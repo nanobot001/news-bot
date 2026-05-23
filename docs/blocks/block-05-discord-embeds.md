@@ -1,5 +1,10 @@
 # Block 05: Discord Embeds
 
+> Status: Implemented on 2026-05-23.
+> Result: Implemented.
+> Verification: `npm run test:all` - passed. Also verified via live post runner `scripts/test-embed.ts`.
+> Notes: Formats eligible news articles into rich Discord embeds and posts them to target channels based on config mapping, with score details rendered in dev mode.
+
 ## Goal
 
 Post eligible articles to the correct Discord topic channel as clean embeds.
