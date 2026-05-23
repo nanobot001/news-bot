@@ -1,0 +1,16 @@
+{
+  "anime": [
+    {
+      "name": "Anime News Network",
+      "url": "https://www.animenewsnetwork.com/all/rss.xml",
+      "trusted": true
+    }
+  ],
+  "movies": [
+    {
+      "name": "Example Movie Feed",
+      "url": "https://example.com/rss",
+      "trusted": false
+    }
+  ]
+}

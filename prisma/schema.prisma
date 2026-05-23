@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id          String    @id
+  url         String?
+  urlHash     String?
+  title       String
+  titleHash   String?
+  topic       String
+  source      String
+  publishedAt DateTime?
+  firstSeenAt DateTime  @default(now())
+  postedAt    DateTime?
+  score       Int?
+  rawJson     Json?
+
+  @@index([topic])
+  @@index([urlHash])
+  @@index([titleHash])
+  @@index([postedAt])
+}

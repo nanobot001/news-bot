@@ -1,0 +1,28 @@
+# Block 06: Scheduled Polling
+
+## Goal
+
+Run the news polling pipeline on a schedule and log per-topic results.
+
+## Scope
+
+- Use `node-cron` with `POLL_CRON`.
+- For each topic, process each configured source.
+- Fetch, normalize, dedupe, score, filter, publish, and store results.
+- Log checked, new, skipped, and posted counts per topic.
+
+## Out Of Scope
+
+- Daily digest
+- Per-topic posting limits beyond threshold filtering
+- Multi-process queueing
+
+## Acceptance Criteria
+
+- Polling runs on the configured interval.
+- Each run reports useful counts.
+- Failures in one feed do not stop all topics from processing.
+
+## Verification
+
+Run typecheck and a local poll against configured development feeds.

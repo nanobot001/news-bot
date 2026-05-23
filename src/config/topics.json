@@ -1,0 +1,14 @@
+{
+  "anime": {
+    "channelId": "DISCORD_CHANNEL_ID_HERE",
+    "keywords": ["anime", "trailer", "season", "adaptation"],
+    "blockedTerms": ["sponsored"],
+    "postThreshold": 50
+  },
+  "movies": {
+    "channelId": "DISCORD_CHANNEL_ID_HERE",
+    "keywords": ["trailer", "box office", "release date", "streaming"],
+    "blockedTerms": ["celebrity gossip"],
+    "postThreshold": 50
+  }
+}
