@@ -1,5 +1,10 @@
 # Block 06: Scheduled Polling
 
+> Status: Implemented on 2026-05-23.
+> Result: Implemented.
+> Verification: `npm run test:all` - passed. Also verified via local manual execution of `RUN_IMMEDIATE=true DRY_RUN=true npm run dev`.
+> Notes: Implements `node-cron` scheduled news polling with structured, log-on-demand strategy and feed-level graceful error handling.
+
 ## Goal
 
 Run the news polling pipeline on a schedule and log per-topic results.

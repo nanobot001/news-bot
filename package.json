@@ -14,7 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "test:storage": "node --import tsx --test tests/storage.test.ts",
     "test:bot": "node --import tsx --test tests/bot.test.ts",
-    "test:all": "node --import tsx --test tests/storage.test.ts tests/scoring.test.ts tests/bot.test.ts",
+    "test:all": "node --import tsx --test tests/storage.test.ts tests/scoring.test.ts tests/bot.test.ts tests/polling.test.ts",
     "test": "npm run test:all"
   },
   "dependencies": {
@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
+    "@types/node-cron": "^3.0.11",
     "prisma": "^5.22.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
