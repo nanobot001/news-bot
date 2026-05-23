@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+  <channel>
+    <title>Sample News Feed</title>
+    <link>https://example.com/news</link>
+    <description>Fixture RSS feed for local ingestion tests</description>
+
+    <item>
+      <guid>sample-article-1</guid>
+      <title>Anime Studio Announces New Series</title>
+      <link>https://example.com/news/anime-studio-new-series</link>
+      <pubDate>Sat, 23 May 2026 12:00:00 GMT</pubDate>
+      <description>A short summary for the first article.</description>
+    </item>
+
+    <item>
+      <guid>sample-article-2</guid>
+      <title>Movie Release Date Confirmed</title>
+      <link>https://example.com/news/movie-release-date</link>
+      <pubDate>Sat, 23 May 2026 13:00:00 GMT</pubDate>
+    </item>
+
+    <item>
+      <guid>sample-article-3</guid>
+      <title>Missing URL Item</title>
+      <pubDate>Sat, 23 May 2026 14:00:00 GMT</pubDate>
+      <description>This item intentionally has no link.</description>
+    </item>
+  </channel>
+</rss>

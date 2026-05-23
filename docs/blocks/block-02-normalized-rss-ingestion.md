@@ -1,5 +1,10 @@
 # Block 02: Normalized RSS Ingestion
 
+> Status: Implemented on 2026-05-23.
+> Result: Implemented.
+> Verification: `npm run typecheck` - passed; `npm run ingest:test` - passed.
+> Notes: RSS XML parsing + optional-field-safe normalization to `NormalizedEvent`, with a fixture-backed ingestion script for deterministic verification.
+
 ## Goal
 
 Fetch configured RSS feeds and convert feed items into shared `NormalizedEvent` objects.
