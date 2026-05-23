@@ -1,0 +1,135 @@
+import { readFile } from "node:fs/promises";
+
+export type TopicConfig = {
+  channelId: string;
+  keywords: string[];
+  blockedTerms: string[];
+  postThreshold: number;
+};
+
+export type SourceConfig = {
+  name: string;
+  url: string;
+  trusted: boolean;
+};
+
+export type AppConfig = {
+  topics: Record<string, TopicConfig>;
+  sources: Record<string, SourceConfig[]>;
+};
+
+async function readJsonFile(path: string): Promise<unknown> {
+  let raw: string;
+
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    throw new Error(`Unable to read config file ${path}: ${formatError(error)}`);
+  }
+
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new Error(`Malformed JSON in config file ${path}: ${formatError(error)}`);
+  }
+}
+
+function validateStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`${label} must be an array of strings`);
+  }
+
+  return value;
+}
+
+function validateTopics(value: unknown): Record<string, TopicConfig> {
+  if (!isRecord(value)) {
+    throw new Error("topics config must be an object keyed by topic name");
+  }
+
+  const topics: Record<string, TopicConfig> = {};
+
+  for (const [topicName, topic] of Object.entries(value)) {
+    if (!isRecord(topic)) {
+      throw new Error(`topics.${topicName} must be an object`);
+    }
+
+    if (typeof topic.channelId !== "string" || topic.channelId.length === 0) {
+      throw new Error(`topics.${topicName}.channelId must be a non-empty string`);
+    }
+
+    if (typeof topic.postThreshold !== "number") {
+      throw new Error(`topics.${topicName}.postThreshold must be a number`);
+    }
+
+    topics[topicName] = {
+      channelId: topic.channelId,
+      keywords: validateStringArray(topic.keywords, `topics.${topicName}.keywords`),
+      blockedTerms: validateStringArray(topic.blockedTerms, `topics.${topicName}.blockedTerms`),
+      postThreshold: topic.postThreshold
+    };
+  }
+
+  return topics;
+}
+
+function validateSources(value: unknown, topics: Record<string, TopicConfig>): Record<string, SourceConfig[]> {
+  if (!isRecord(value)) {
+    throw new Error("sources config must be an object keyed by topic name");
+  }
+
+  const sources: Record<string, SourceConfig[]> = {};
+
+  for (const [topicName, topicSources] of Object.entries(value)) {
+    if (!topics[topicName]) {
+      throw new Error(`sources.${topicName} does not match a configured topic`);
+    }
+
+    if (!Array.isArray(topicSources)) {
+      throw new Error(`sources.${topicName} must be an array`);
+    }
+
+    sources[topicName] = topicSources.map((source, index) => {
+      const label = `sources.${topicName}[${index}]`;
+
+      if (!isRecord(source)) {
+        throw new Error(`${label} must be an object`);
+      }
+
+      if (typeof source.name !== "string" || source.name.length === 0) {
+        throw new Error(`${label}.name must be a non-empty string`);
+      }
+
+      if (typeof source.url !== "string" || source.url.length === 0) {
+        throw new Error(`${label}.url must be a non-empty string`);
+      }
+
+      if (typeof source.trusted !== "boolean") {
+        throw new Error(`${label}.trusted must be a boolean`);
+      }
+
+      return {
+        name: source.name,
+        url: source.url,
+        trusted: source.trusted
+      };
+    });
+  }
+
+  return sources;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export async function loadAppConfig(): Promise<AppConfig> {
+  const topics = validateTopics(await readJsonFile("src/config/topics.json"));
+  const sources = validateSources(await readJsonFile("src/config/sources.json"), topics);
+
+  return { topics, sources };
+}

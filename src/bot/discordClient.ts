@@ -1,3 +1,5 @@
+import { Client, GatewayIntentBits } from "discord.js";
+
 export type DiscordClientConfig = {
   token: string;
   clientId: string;
@@ -21,4 +23,10 @@ export function createDiscordClientConfigFromEnv(): DiscordClientConfig {
     clientId,
     guildId: process.env.DISCORD_GUILD_ID
   };
+}
+
+export function createDiscordClient(): Client {
+  return new Client({
+    intents: [GatewayIntentBits.Guilds]
+  });
 }

@@ -1,5 +1,10 @@
 # Block 01: First Verifiable Step
 
+> Status: Implemented on 2026-05-23.
+> Result: Implemented.
+> Verification: `npm install` - passed; `npm run typecheck` - passed; `npm run dev` - passed.
+> Notes: The TypeScript bot shell loads `.env`, validates topic/source config, prepares `/ping`, creates a Discord client, and successfully connected during verification.
+
 ## Goal
 
 Create the smallest runnable TypeScript project shell for the Discord news bot.
