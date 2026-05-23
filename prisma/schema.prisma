@@ -19,7 +19,7 @@ model Article {
   firstSeenAt DateTime  @default(now())
   postedAt    DateTime?
   score       Int?
-  rawJson     Json?
+  rawJson     String?
 
   @@index([topic])
   @@index([urlHash])

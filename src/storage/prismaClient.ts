@@ -1,3 +1,3 @@
-export type PrismaClientStatus = "not-initialized";
+import { PrismaClient } from "@prisma/client";
 
-export const prismaClientStatus: PrismaClientStatus = "not-initialized";
+export const prisma = new PrismaClient();

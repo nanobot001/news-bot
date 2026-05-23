@@ -1,5 +1,10 @@
 # Block 03: SQLite Dedupe Storage
 
+> Status: Implemented on 2026-05-23.
+> Result: Implemented.
+> Verification: `npm run test:storage` - passed.
+> Notes: Persistent SQLite storage implemented using Prisma with optimized single-query, topic-scoped deduplication checks on GUID, normalized URL, and normalized title.
+
 ## Goal
 
 Persist article records in SQLite and prevent reposting duplicates.
