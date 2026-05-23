@@ -148,6 +148,7 @@ test("Scheduled Polling Pipeline System", async (t) => {
       newItems: 1,
       skipped: 0,
       posted: 1,
+      eligible: 1,
     });
 
     // Assert Discord posting

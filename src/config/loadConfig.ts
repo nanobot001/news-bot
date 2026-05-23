@@ -133,3 +133,20 @@ export async function loadAppConfig(): Promise<AppConfig> {
 
   return { topics, sources };
 }
+
+export async function reloadAppConfig(config: AppConfig): Promise<void> {
+  const newConfig = await loadAppConfig();
+
+  // Clear existing keys in-place
+  for (const key of Object.keys(config.topics)) {
+    delete config.topics[key];
+  }
+  for (const key of Object.keys(config.sources)) {
+    delete config.sources[key];
+  }
+
+  // Assign new reloaded values in-place
+  Object.assign(config.topics, newConfig.topics);
+  Object.assign(config.sources, newConfig.sources);
+}
+

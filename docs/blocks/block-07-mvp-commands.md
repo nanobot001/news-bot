@@ -26,3 +26,8 @@ Implement the remaining MVP slash commands.
 ## Verification
 
 Run typecheck and manually exercise each command in a development Discord server.
+
+## Status
+
+Completed. All Acceptance Criteria met, and automated tests verify formatting, in-place reload, DB query helpers, and dry-run execution.
+

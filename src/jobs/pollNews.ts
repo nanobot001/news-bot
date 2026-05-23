@@ -14,6 +14,7 @@ export type PollTopicCounts = {
   newItems: number;
   skipped: number;
   posted: number;
+  eligible?: number;
 };
 
 export type PollError = {
@@ -29,19 +30,26 @@ export type PollError = {
 export async function pollNews(
   client: Client,
   config: AppConfig,
-  errorsList?: PollError[]
+  errorsList?: PollError[],
+  targetTopic?: string,
+  forceDryRun = false
 ): Promise<Record<string, PollTopicCounts>> {
   const counts: Record<string, PollTopicCounts> = {};
+  const topicsToPoll = targetTopic ? [targetTopic] : Object.keys(config.topics);
 
-  for (const topic of Object.keys(config.topics)) {
+  for (const topic of topicsToPoll) {
     counts[topic] = {
       checked: 0,
       newItems: 0,
       skipped: 0,
       posted: 0,
+      eligible: 0,
     };
 
     const topicConfig = config.topics[topic];
+    if (!topicConfig) {
+      continue;
+    }
     const sources = config.sources[topic] || [];
 
     for (const source of sources) {
@@ -71,9 +79,10 @@ export async function pollNews(
             isDuplicate: false,
           });
 
-          const isDryRun = process.env.DRY_RUN === "true";
+          const isDryRun = forceDryRun || process.env.DRY_RUN === "true";
 
           if (filteringResult.shouldPost) {
+            counts[topic].eligible!++;
             if (isDryRun) {
               console.log(`[Dry Run] Would post article: "${event.title}" to channel: ${topicConfig.channelId}`);
               counts[topic].skipped++;

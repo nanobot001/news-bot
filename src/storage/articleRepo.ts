@@ -108,3 +108,18 @@ export async function getArticlesByTopic(topic: string, limit = 20): Promise<Art
     take: limit,
   });
 }
+
+/**
+ * Retrieves recently posted articles for a topic, ordered by postedAt descending.
+ */
+export async function getRecentlyPostedArticles(topic: string, limit = 10): Promise<Article[]> {
+  return prisma.article.findMany({
+    where: {
+      topic,
+      postedAt: { not: null },
+    },
+    orderBy: { postedAt: "desc" },
+    take: limit,
+  });
+}
+
