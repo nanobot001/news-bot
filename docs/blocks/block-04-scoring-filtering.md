@@ -1,6 +1,12 @@
 # Block 04: Scoring And Filtering
 
+> Status: Implemented on 2026-05-23.
+> Result: Implemented.
+> Verification: `npm run typecheck` and `node --import tsx --test tests/scoring.test.ts` - passed.
+> Notes: Deterministic relevance scoring (word boundary plus plural suffix matching, binary keyword scoring, trusted source boosts, penalties for missing URLs or blocked terms) and eligibility filtering are fully implemented and verified via unit tests.
+
 ## Goal
+
 
 Score normalized articles deterministically and decide whether they are eligible to post.
 
