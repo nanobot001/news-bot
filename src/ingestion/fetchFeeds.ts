@@ -11,10 +11,26 @@ export type FetchFeedItemsResult = FetchFeedResult & {
 };
 
 async function fetchText(url: string): Promise<string> {
+  const timeoutMs = 8000;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "user-agent": "news-bot/0.1.0"
+      },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    if (response.ok) {
+      return await response.text();
+    }
+  } catch (error) {
+    // Fallback to browser user agent
+  }
+
   const response = await fetch(url, {
     headers: {
-      "user-agent": "news-bot/0.1.0"
-    }
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    },
+    signal: AbortSignal.timeout(timeoutMs)
   });
 
   if (!response.ok) {

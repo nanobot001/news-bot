@@ -8,7 +8,7 @@ datasource db {
 }
 
 model Article {
-  id          String    @id
+  id          String
   url         String?
   urlHash     String?
   title       String
@@ -21,6 +21,7 @@ model Article {
   score       Int?
   rawJson     String?
 
+  @@id([id, topic])
   @@index([topic])
   @@index([urlHash])
   @@index([titleHash])

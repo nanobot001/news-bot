@@ -58,7 +58,10 @@ export async function pollNews(
         for (const item of result.items) {
           counts[topic].checked++;
           const event = normalizeRssItem({ topic, source, item });
-          const dedupeResult = await checkDuplicate(event);
+          const sharingTopics = Object.entries(config.topics)
+            .filter(([_, tc]) => tc.channelId === topicConfig.channelId)
+            .map(([t]) => t);
+          const dedupeResult = await checkDuplicate(event, sharingTopics);
 
           if (dedupeResult.isDuplicate) {
             counts[topic].skipped++;
@@ -73,10 +76,13 @@ export async function pollNews(
             trustedSource: source.trusted,
           });
 
+          const maxAgeHours = process.env.MAX_ARTICLE_AGE_HOURS ? parseInt(process.env.MAX_ARTICLE_AGE_HOURS, 10) : 24;
           const filteringResult = filterArticle({
             score: scoringResult.score,
             threshold: topicConfig.postThreshold,
             isDuplicate: false,
+            publishedAt: event.publishedAt,
+            maxAgeHours,
           });
 
           const isDryRun = forceDryRun || process.env.DRY_RUN === "true";

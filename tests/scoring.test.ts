@@ -65,8 +65,8 @@ test("Scoring and Filtering Logic Suite", async (t) => {
       trustedSource: false,
     });
 
-    // Score: 0 + 20 (title keyword) - 20 (blocked term) = 0
-    assert.equal(result.score, 0);
+    // Score: 0 + 20 (title keyword) - 100 (blocked term) = -80
+    assert.equal(result.score, -80);
     assert.ok(result.reasons.some((r) => r.includes("Blocked term matched")));
   });
 
@@ -93,8 +93,8 @@ test("Scoring and Filtering Logic Suite", async (t) => {
       trustedSource: false,
     });
 
-    // Score: 0 - 20 (blocked term) - 10 (missing URL) = -30
-    assert.equal(result.score, -30);
+    // Score: 0 - 100 (blocked term) - 10 (missing URL) = -110
+    assert.equal(result.score, -110);
     assert.equal(result.reasons.length, 2);
   });
 
@@ -129,7 +129,7 @@ test("Scoring and Filtering Logic Suite", async (t) => {
     assert.equal(resultSubstring.score, 0);
   });
 
-  await t.test("should filter articles based on duplicate flag and threshold", () => {
+  await t.test("should filter articles based on duplicate flag, threshold, and publication age", () => {
     // 1. Rejected as duplicate
     const filter1 = filterArticle({
       score: 100,
@@ -165,5 +165,97 @@ test("Scoring and Filtering Logic Suite", async (t) => {
     });
     assert.equal(filter4.shouldPost, true);
     assert.ok(filter4.reasons[0].includes("meets or exceeds threshold"));
+
+    // 5. Rejected as too old
+    const staleDate = new Date(Date.now() - 25 * 60 * 60 * 1000); // 25 hours ago
+    const filterStale = filterArticle({
+      score: 100,
+      threshold: 50,
+      isDuplicate: false,
+      publishedAt: staleDate,
+      maxAgeHours: 24,
+    });
+    assert.equal(filterStale.shouldPost, false);
+    assert.ok(filterStale.reasons.some((r) => r.includes("exceeds max age")));
+
+    // 6. Approved if within max age
+    const freshDate = new Date(Date.now() - 5 * 60 * 60 * 1000); // 5 hours ago
+    const filterFresh = filterArticle({
+      score: 100,
+      threshold: 50,
+      isDuplicate: false,
+      publishedAt: freshDate,
+      maxAgeHours: 24,
+    });
+    assert.equal(filterFresh.shouldPost, true);
+
+    // 7. Approved if no date provided (fallback)
+    const filterNoDate = filterArticle({
+      score: 100,
+      threshold: 50,
+      isDuplicate: false,
+      publishedAt: null,
+      maxAgeHours: 24,
+    });
+    assert.equal(filterNoDate.shouldPost, true);
   });
+
+  await t.test("should penalize and filter out sports betting keywords", () => {
+    const sportsBlockedTerms = [
+      "sponsored", "deal", "coupon", "bet", "bets", "betting", "wager", "wagers",
+      "wagering", "sportsbook", "sportsbooks", "fanduel", "draftkings", "betmgm",
+      "caesars", "pointsbet", "wynnbet", "betrivers", "fliff", "prizepicks",
+      "underdog fantasy", "odds", "parlay", "parlays", "moneyline", "moneylines",
+      "point spread", "point spreads", "spreads", "over/under", "over/unders",
+      "over-under", "over-unders", "gambling", "gamble", "gambles", "gambler",
+      "gamblers", "promo", "promo code", "promo codes", "payout", "payouts",
+      "prop bet", "prop bets", "prop picks", "expert picks", "fantasy picks",
+      "best picks", "vegas picks", "vegas odds", "bonus bet", "bonus bets",
+      "free bet", "free bets", "bonus code", "bookmaker", "bookmakers",
+      "bookie", "bookies", "casino", "casinos", "pick'em", "pick-em", "dfs", "ats"
+    ];
+
+    const bettingTitles = [
+      "NBA player prop picks, odds: Three best 2026 NBA Playoffs prop bets for Thunder vs. Spurs, Game 3",
+      "Use DraftKings promo code for $100 bonus bets by targeting Cavaliers-Knicks",
+      "MLB DFS: Top DraftKings, FanDuel daily Fantasy baseball picks include Bobby Witt Jr.",
+      "Use BetMGM bonus code CBSSPORTS to get $1,500 in bonus bets for Knicks-Cavaliers",
+      "Knicks vs. Cavaliers odds, prediction: 2026 NBA Eastern Conference Finals picks, Game 3 bets by proven model",
+      "Rockies vs. Diamondbacks MLB picks: Keep riding surging Arizona, Eduardo Rodriguez",
+      "Free MLB home run picks, odds for May 21: Vlad Guerrero Jr. among expert's bets for Thursday HR player props",
+      "Underdog Fantasy Promo Code and Best Picks for Wednesday, May 20",
+      "PrizePicks promo code: Get $100 bonus for NBA playoffs player props"
+    ];
+
+    for (const title of bettingTitles) {
+      const result = scoreArticle({
+        event: {
+          id: "test-betting",
+          type: "news.article",
+          topic: "nba",
+          title,
+          url: "https://example.com/nba/1",
+          sourceName: "CBS Sports NBA",
+          summary: "Check out these odds and prop bets!"
+        },
+        keywords: ["nba", "playoffs", "baseball"],
+        blockedTerms: sportsBlockedTerms,
+        trustedSource: true,
+      });
+
+      // Max base score: 20 (title match) + 10 (summary match) + 15 (trusted) = 45.
+      // With -100 penalty, it must be <= -55.
+      assert.ok(result.score <= -55, `Expected score <= -55 for title "${title}", got ${result.score}`);
+      assert.ok(result.reasons.some((r) => r.includes("Blocked term matched")));
+      
+      const filterResult = filterArticle({
+        score: result.score,
+        threshold: 20,
+        isDuplicate: false
+      });
+      assert.equal(filterResult.shouldPost, false);
+    }
+  });
+
 });
+

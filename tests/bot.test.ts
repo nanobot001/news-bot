@@ -17,10 +17,20 @@ import {
   handleLastpostsCommand,
   handleReloadconfigCommand,
   handleTestfeedCommand,
+  handleRefreshCommand,
+  handleStatsCommand,
+  handleSearchCommand,
+  handleTopicsCommand,
+  handleSourcesCommand,
   pingCommand,
   testfeedCommand,
   lastpostsCommand,
-  reloadconfigCommand
+  reloadconfigCommand,
+  refreshCommand,
+  statsCommand,
+  searchCommand,
+  topicsCommand,
+  sourcesCommand
 } from "../src/bot/commands.js";
 import type { AppConfig } from "../src/config/loadConfig.js";
 
@@ -141,6 +151,22 @@ test("Discord Embed Formatting", async (t) => {
     assert.equal(data.description, undefined);
     assert.equal(data.timestamp, undefined);
   });
+
+  await t.test("should set YouTube thumbnail image if URL is a YouTube video", () => {
+    const event: NormalizedEvent = {
+      id: "yt-test",
+      type: "news.article",
+      topic: "blue-jays",
+      title: "Blue Jays YouTube Video",
+      url: "https://www.youtube.com/watch?v=UCVPkZh_H6m_stW8hq-2-yNw",
+      sourceName: "Toronto Blue Jays YouTube",
+    };
+
+    const embed = formatArticleEmbed({ event, score: 50 });
+    const data = embed.toJSON();
+
+    assert.equal(data.image?.url, "https://img.youtube.com/vi/UCVPkZh_H6m_stW8hq-2-yNw/hqdefault.jpg");
+  });
 });
 
 test("Discord Message Posting (Mocked)", async (t) => {
@@ -245,13 +271,23 @@ test("Slash Commands System", async (t) => {
     assert.equal(testfeedCommand.name, "testfeed");
     assert.equal(lastpostsCommand.name, "lastposts");
     assert.equal(reloadconfigCommand.name, "reload-config");
+    assert.equal(refreshCommand.name, "refresh");
+    assert.equal(statsCommand.name, "stats");
+    assert.equal(searchCommand.name, "search");
+    assert.equal(topicsCommand.name, "topics");
+    assert.equal(sourcesCommand.name, "sources");
 
     const payloads = getCommandRegistrationPayloads();
-    assert.equal(payloads.length, 4);
+    assert.equal(payloads.length, 9);
     assert.equal(payloads[0].name, "ping");
     assert.equal(payloads[1].name, "testfeed");
     assert.equal(payloads[2].name, "lastposts");
     assert.equal(payloads[3].name, "reload-config");
+    assert.equal(payloads[4].name, "refresh");
+    assert.equal(payloads[5].name, "stats");
+    assert.equal(payloads[6].name, "search");
+    assert.equal(payloads[7].name, "topics");
+    assert.equal(payloads[8].name, "sources");
   });
 
   await t.test("handlePingCommand should reply with pong", async () => {
@@ -296,9 +332,9 @@ test("Slash Commands System", async (t) => {
     assert.ok(editedReply);
     assert.match(replyContent, /Successfully reloaded configuration/);
 
-    // Verify config was mutated in place (it loaded anime/movies topics from dev topics.json)
+    // Verify config was mutated in place (it loaded topics from dev topics.json)
     assert.ok(!mockConfig.topics.old);
-    assert.ok(mockConfig.topics.anime || mockConfig.topics.movies);
+    assert.ok(Object.keys(mockConfig.topics).length > 0);
   });
 
   await t.test("handleLastpostsCommand should list recently posted articles", async () => {
@@ -415,5 +451,221 @@ test("Slash Commands System", async (t) => {
     assert.ok(deferred);
     assert.ok(editedReply);
     assert.match(replyContent, /Diagnostic Test Run for Topic/);
+  });
+
+  await t.test("handleRefreshCommand should execute refresh run", async () => {
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      options: {
+        getString: (name: string) => {
+          if (name === "topic") return null;
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockClient: any = {
+      channels: {
+        fetch: async () => ({
+          isTextBased: () => true,
+          send: async () => ({ id: "mock" })
+        })
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      sources: { anime: [] }
+    };
+
+    await handleRefreshCommand(mockInteraction, mockClient, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /Feed Refresh Complete/);
+  });
+
+  await t.test("handleStatsCommand should query database totals", async () => {
+    await prisma.article.deleteMany({});
+
+    // Seed test articles
+    const mock1 = { id: "stats-1", type: "news.article", topic: "anime", title: "Stats 1", url: "https://example.com/stats1", sourceName: "Stats Source" };
+    const mock2 = { id: "stats-2", type: "news.article", topic: "ai", title: "Stats 2", url: "https://example.com/stats2", sourceName: "Stats Source" };
+    await saveArticle(mock1, 80, new Date()); // posted
+    await saveArticle(mock2, 10, null); // not posted
+
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: {
+        anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 50 },
+        ai: { channelId: "456", keywords: [], blockedTerms: [], postThreshold: 50 }
+      },
+      sources: { anime: [], ai: [] }
+    };
+
+    await handleStatsCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /Total Indexed Articles: \*\*2\*\*/);
+    assert.match(replyContent, /Total Posted to Discord: \*\*1\*\*/);
+    assert.match(replyContent, /Total Skipped\/Deduplicated: \*\*1\*\*/);
+  });
+
+  await t.test("handleSearchCommand should find matching articles", async () => {
+    await prisma.article.deleteMany({});
+
+    const mock1 = { id: "search-1", type: "news.article", topic: "anime", title: "Unique Anime Magic Title", url: "https://example.com/search1", sourceName: "Search Source" };
+    await saveArticle(mock1, 90, new Date());
+
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      options: {
+        getString: (name: string, required?: boolean) => {
+          if (name === "query") return "Unique Anime Magic";
+          if (name === "topic") return null;
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      sources: { anime: [] }
+    };
+
+    await handleSearchCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /Unique Anime Magic Title/);
+  });
+
+  await t.test("handleSearchCommand should handle no results gracefully", async () => {
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      options: {
+        getString: (name: string, required?: boolean) => {
+          if (name === "query") return "NoMatchingStuffTextHere";
+          if (name === "topic") return null;
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      sources: { anime: [] }
+    };
+
+    await handleSearchCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /No articles matching/);
+  });
+
+  await t.test("handleTopicsCommand should list topic settings", async () => {
+    let replied = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      reply: async (options: any) => {
+        replied = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: {
+        anime: { channelId: "12345", keywords: ["magic", "goku"], blockedTerms: ["boring"], postThreshold: 70 }
+      },
+      sources: { anime: [] }
+    };
+
+    await handleTopicsCommand(mockInteraction, mockConfig);
+    assert.ok(replied);
+    assert.match(replyContent, /Configured News Topics/);
+    assert.match(replyContent, /Threshold: `70`/);
+    assert.match(replyContent, /Keywords \(2\): `magic`, `goku`/);
+    assert.match(replyContent, /Blocked Terms \(1\): `boring`/);
+  });
+
+  await t.test("handleSourcesCommand should list sources", async () => {
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      options: {
+        getString: (name: string) => {
+          if (name === "topic") return null;
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      sources: {
+        anime: [
+          { name: "Feed 1", url: "https://example.com/feed1", trusted: true },
+          { name: "Feed 2", url: "https://example.com/feed2", trusted: false }
+        ]
+      }
+    };
+
+    await handleSourcesCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /Feed 1.*https:\/\/example.com\/feed1/);
+    assert.match(replyContent, /Feed 2.*https:\/\/example.com\/feed2/);
+    assert.match(replyContent, /trusted/);
   });
 });

@@ -157,7 +157,7 @@ test("Scheduled Polling Pipeline System", async (t) => {
     assert.equal(postedEmbeds[0].embed.data.title, "Breaking News: Ultimate AI Release!");
 
     // Assert database save
-    const saved = await prisma.article.findUnique({ where: { id: "guid-ai-1" } });
+    const saved = await prisma.article.findFirst({ where: { id: "guid-ai-1" } });
     assert.ok(saved);
     assert.equal(saved.title, "Breaking News: Ultimate AI Release!");
     assert.ok(saved.score >= 10);
@@ -307,7 +307,7 @@ test("Scheduled Polling Pipeline System", async (t) => {
     assert.equal(postedEmbeds.length, 0);
 
     // Verify it is NOT saved in the database
-    const saved = await prisma.article.findUnique({ where: { id: "guid-dry" } });
+    const saved = await prisma.article.findFirst({ where: { id: "guid-dry" } });
     assert.equal(saved, null);
   });
 });

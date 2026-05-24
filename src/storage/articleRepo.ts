@@ -4,13 +4,14 @@ import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
 import { normalizeUrl, normalizeTitle, sha256 } from "../processing/hashUtils.js";
 
 /**
- * Checks if an article is a duplicate within a specific topic using a combined single query.
+ * Checks if an article is a duplicate within a specific topic or sharing topics context using a combined single query.
  */
 export async function findDuplicateArticle(
   topic: string,
   id: string,
   url?: string,
-  title?: string
+  title?: string,
+  sharingTopics?: string[]
 ): Promise<{ isDuplicate: boolean; reason: "guid" | "urlHash" | "titleHash" } | null> {
   const urlHash = url ? sha256(normalizeUrl(url)) : undefined;
   const titleHash = title ? sha256(normalizeTitle(title)) : undefined;
@@ -23,10 +24,29 @@ export async function findDuplicateArticle(
     conditions.push({ titleHash });
   }
 
+  const targetTopics = sharingTopics && sharingTopics.length > 0
+    ? sharingTopics.filter((t) => t !== topic)
+    : [];
+
   const existing = await prisma.article.findFirst({
     where: {
-      topic,
-      OR: conditions,
+      OR: [
+        // 1. Duplicate within the current topic (posted or not)
+        {
+          topic,
+          OR: conditions,
+        },
+        // 2. Duplicate in sibling topics that share the same channel, but only if actually posted
+        ...(targetTopics.length > 0
+          ? [
+              {
+                topic: { in: targetTopics },
+                postedAt: { not: null },
+                OR: conditions,
+              },
+            ]
+          : []),
+      ],
     },
   });
 
@@ -60,13 +80,17 @@ export async function saveArticle(
   const titleHash = sha256(normalizeTitle(event.title));
 
   return prisma.article.upsert({
-    where: { id: event.id },
+    where: {
+      id_topic: {
+        id: event.id,
+        topic: event.topic,
+      },
+    },
     update: {
       url: event.url,
       urlHash,
       title: event.title,
       titleHash,
-      topic: event.topic,
       source: event.sourceName,
       publishedAt: event.publishedAt ? new Date(event.publishedAt) : null,
       postedAt: postedAt ?? null,
@@ -92,8 +116,15 @@ export async function saveArticle(
 /**
  * Retrieves a single article by ID.
  */
-export async function getArticleById(id: string): Promise<Article | null> {
-  return prisma.article.findUnique({
+export async function getArticleById(id: string, topic?: string): Promise<Article | null> {
+  if (topic) {
+    return prisma.article.findUnique({
+      where: {
+        id_topic: { id, topic },
+      },
+    });
+  }
+  return prisma.article.findFirst({
     where: { id },
   });
 }

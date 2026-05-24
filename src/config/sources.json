@@ -1,15 +1,249 @@
 {
-  "anime": [
+  "blue-jays": [
     {
-      "name": "Anime News Network",
-      "url": "https://www.animenewsnetwork.com/all/rss.xml",
+      "name": "Jays Journal",
+      "url": "https://jaysjournal.com/feed/",
       "trusted": true
+    },
+    {
+      "name": "Sportsnet MLB",
+      "url": "https://www.sportsnet.ca/baseball/mlb/feed/",
+      "trusted": true
+    },
+    {
+      "name": "CBS Sports MLB",
+      "url": "https://www.cbssports.com/rss/headlines/mlb/",
+      "trusted": true
+    },
+    {
+      "name": "MLB Trade Rumors Blue Jays",
+      "url": "https://www.mlbtraderumors.com/toronto-blue-jays/feed",
+      "trusted": true
+    },
+    {
+      "name": "Toronto Star Blue Jays",
+      "url": "https://news.google.com/rss/search?q=site:thestar.com+%22Blue+Jays%22",
+      "trusted": true
+    },
+    {
+      "name": "Globe and Mail Blue Jays",
+      "url": "https://news.google.com/rss/search?q=site:theglobeandmail.com+%22Blue+Jays%22",
+      "trusted": true
+    },
+    {
+      "name": "Toronto Sun Blue Jays",
+      "url": "https://news.google.com/rss/search?q=site:torontosun.com+%22Blue+Jays%22",
+      "trusted": true
+    },
+    {
+      "name": "TSN Blue Jays",
+      "url": "https://news.google.com/rss/search?q=site:tsn.ca+%22Blue+Jays%22",
+      "trusted": true
+    },
+    {
+      "name": "CBC Sports",
+      "url": "https://www.cbc.ca/cmlink/rss-sports",
+      "trusted": true
+    },
+    {
+      "name": "The Athletic Blue Jays",
+      "url": "https://news.google.com/rss/search?q=site:nytimes.com/athletic+%22Blue+Jays%22",
+      "trusted": true
+    },
+    {
+      "name": "Andrew Stoeten (The Batflip)",
+      "url": "https://stoeten.substack.com/feed",
+      "trusted": true
+    },
+    {
+      "name": "MLB.com Blue Jays",
+      "url": "https://www.mlb.com/feeds/news/rss/bluejays",
+      "trusted": true
+    },
+    {
+      "name": "Blue Jays Nation",
+      "url": "https://bluejaysnation.com/feed/",
+      "trusted": true
+    },
+    {
+      "name": "Toronto Blue Jays YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCVPkZh_H6m_stW8hq-2-yNw",
+      "trusted": true
+    },
+    {
+      "name": "Reddit Blue Jays",
+      "url": "https://www.reddit.com/r/Torontobluejays/.rss",
+      "trusted": false
     }
   ],
-  "movies": [
+  "toronto-raptors": [
     {
-      "name": "Example Movie Feed",
-      "url": "https://example.com/rss",
+      "name": "Raptors Republic",
+      "url": "https://raptorsrepublic.com/feed/",
+      "trusted": true
+    },
+    {
+      "name": "Sportsnet NBA",
+      "url": "https://www.sportsnet.ca/basketball/nba/feed/",
+      "trusted": true
+    },
+    {
+      "name": "CBS Sports NBA",
+      "url": "https://www.cbssports.com/rss/headlines/nba/",
+      "trusted": true
+    },
+    {
+      "name": "Reddit Raptors",
+      "url": "https://www.reddit.com/r/torontoraptors/.rss",
+      "trusted": false
+    }
+  ],
+  "nba": [
+    {
+      "name": "RealGM NBA Wiretap",
+      "url": "https://basketball.realgm.com/rss/realgm_nba_wiretap.xml",
+      "trusted": true
+    },
+    {
+      "name": "Hoops Rumors",
+      "url": "https://hoopsrumors.com/feed",
+      "trusted": true
+    },
+    {
+      "name": "CBS Sports NBA",
+      "url": "https://www.cbssports.com/rss/headlines/nba/",
+      "trusted": true
+    },
+    {
+      "name": "SB Nation NBA",
+      "url": "https://www.sbnation.com/rss/partner/sb-nation-nba/index.xml",
+      "trusted": true
+    },
+    {
+      "name": "Sportsnet NBA",
+      "url": "https://www.sportsnet.ca/basketball/nba/feed/",
+      "trusted": true
+    },
+    {
+      "name": "RotoWire NBA News",
+      "url": "https://www.rotowire.com/rss/news.php?sport=NBA",
+      "trusted": true
+    },
+    {
+      "name": "RotoBaller NBA Feed",
+      "url": "https://www.rotoballer.com/category/nba/feed/",
+      "trusted": true
+    },
+    {
+      "name": "ESPN NBA",
+      "url": "https://news.google.com/rss/search?q=site:espn.com/nba",
+      "trusted": true
+    },
+    {
+      "name": "The Ringer NBA",
+      "url": "https://news.google.com/rss/search?q=site:theringer.com/nba",
+      "trusted": true
+    },
+    {
+      "name": "NYT Sports",
+      "url": "https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml",
+      "trusted": true
+    },
+    {
+      "name": "Reddit NBA",
+      "url": "https://www.reddit.com/r/nba/.rss",
+      "trusted": false
+    }
+  ],
+  "ai": [
+    {
+      "name": "Hacker News Frontpage",
+      "url": "https://hnrss.org/frontpage",
+      "trusted": true
+    },
+    {
+      "name": "Import AI",
+      "url": "https://importai.substack.com/feed",
+      "trusted": true
+    },
+    {
+      "name": "MIT Technology Review AI",
+      "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+      "trusted": true
+    },
+    {
+      "name": "WIRED AI",
+      "url": "https://www.wired.com/feed/tag/ai/latest/rss",
+      "trusted": true
+    },
+    {
+      "name": "VentureBeat AI",
+      "url": "https://venturebeat.com/category/ai/feed/",
+      "trusted": true
+    },
+    {
+      "name": "Towards Data Science",
+      "url": "https://towardsdatascience.com/feed",
+      "trusted": true
+    },
+    {
+      "name": "Hugging Face Blog",
+      "url": "https://huggingface.co/blog/feed.xml",
+      "trusted": true
+    },
+    {
+      "name": "NVIDIA Blog",
+      "url": "https://blogs.nvidia.com/feed/",
+      "trusted": true
+    },
+    {
+      "name": "NVIDIA Developer Blog",
+      "url": "https://developer.nvidia.com/blog/feed/",
+      "trusted": true
+    },
+    {
+      "name": "Microsoft Research Blog",
+      "url": "https://www.microsoft.com/en-us/research/blog/feed/",
+      "trusted": true
+    },
+    {
+      "name": "The Verge AI",
+      "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+      "trusted": true
+    },
+    {
+      "name": "TechCrunch AI",
+      "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+      "trusted": true
+    },
+    {
+      "name": "OpenAI News",
+      "url": "https://openai.com/news/rss.xml",
+      "trusted": true
+    },
+    {
+      "name": "Google DeepMind Blog",
+      "url": "https://deepmind.google/blog/feed/",
+      "trusted": true
+    },
+    {
+      "name": "Reddit OpenAI",
+      "url": "https://www.reddit.com/r/openai/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Reddit LocalLlama",
+      "url": "https://www.reddit.com/r/LocalLlama/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Reddit Artificial Intelligence",
+      "url": "https://www.reddit.com/r/ArtificialInteligence/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Reddit Machine Learning",
+      "url": "https://www.reddit.com/r/MachineLearning/.rss",
       "trusted": false
     }
   ]

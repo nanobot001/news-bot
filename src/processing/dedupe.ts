@@ -9,12 +9,16 @@ export type DedupeResult = {
 /**
  * Checks if a normalized event is a duplicate within its topic context.
  */
-export async function checkDuplicate(event: NormalizedEvent): Promise<DedupeResult> {
+export async function checkDuplicate(
+  event: NormalizedEvent,
+  sharingTopics?: string[]
+): Promise<DedupeResult> {
   const result = await findDuplicateArticle(
     event.topic,
     event.id,
     event.url,
-    event.title
+    event.title,
+    sharingTopics
   );
 
   if (result) {

@@ -148,4 +148,72 @@ test("Storage and Deduplication System", async (t) => {
     const result = await checkDuplicate(spaceArticleInTechTopic);
     assert.equal(result.isDuplicate, false);
   });
+
+  await t.test("should allow saving the same article GUID under two different topics (composite key isolation)", async () => {
+    const article1: NormalizedEvent = {
+      id: "same-guid-123",
+      type: "news.article",
+      topic: "topic-a",
+      title: "Same Title",
+      url: "https://example.com/same-url",
+      sourceName: "Source A",
+    };
+    const article2: NormalizedEvent = {
+      id: "same-guid-123",
+      type: "news.article",
+      topic: "topic-b",
+      title: "Same Title",
+      url: "https://example.com/same-url",
+      sourceName: "Source B",
+    };
+
+    await saveArticle(article1, 10);
+    await saveArticle(article2, 20);
+
+    const retrieved1 = await getArticleById("same-guid-123", "topic-a");
+    const retrieved2 = await getArticleById("same-guid-123", "topic-b");
+
+    assert.ok(retrieved1);
+    assert.ok(retrieved2);
+    assert.equal(retrieved1.topic, "topic-a");
+    assert.equal(retrieved1.score, 10);
+    assert.equal(retrieved2.topic, "topic-b");
+    assert.equal(retrieved2.score, 20);
+  });
+
+  await t.test("should deduplicate across sharing topics only if posted, but not if not posted", async () => {
+    const originalEvent: NormalizedEvent = {
+      id: "shared-guid-1",
+      type: "news.article",
+      topic: "topic-c",
+      title: "Shared Article",
+      url: "https://example.com/shared-1",
+      sourceName: "Source C",
+    };
+
+    // Case A: Article saved but NOT posted (postedAt is null)
+    await saveArticle(originalEvent, 10, undefined); // postedAt is null by default
+
+    const checkEvent: NormalizedEvent = {
+      id: "shared-guid-1",
+      type: "news.article",
+      topic: "topic-d",
+      title: "Shared Article",
+      url: "https://example.com/shared-1",
+      sourceName: "Source D",
+    };
+
+    // checkDuplicate with sharingTopics including topic-c
+    const resultNotPosted = await checkDuplicate(checkEvent, ["topic-c", "topic-d"]);
+    // Since topic-c has not posted it, it shouldn't flag it as duplicate for topic-d
+    assert.equal(resultNotPosted.isDuplicate, false);
+
+    // Case B: Now mark topic-c as posted
+    await saveArticle(originalEvent, 10, new Date()); // postedAt is set
+
+    const resultPosted = await checkDuplicate(checkEvent, ["topic-c", "topic-d"]);
+    // Now it should flag as duplicate because topic-c has posted it!
+    assert.equal(resultPosted.isDuplicate, true);
+    assert.equal(resultPosted.reason, "guid");
+  });
 });

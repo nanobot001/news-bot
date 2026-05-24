@@ -14,4 +14,11 @@ Implement one block at a time. The roadmap in `docs/project-charter.md` is autho
 8. `block-07-mvp-commands.md`: `/testfeed`, `/lastposts`, and `/reload-config`.
 9. `block-08-readme-setup-verification.md`: final setup docs and MVP verification pass.
 
-Start with `block-01-first-verifiable-step.md`.
+## Phase 2 Block Sequence: Curation Enhancements
+
+1. `block-2-1-admin-auth-audit.md`: Admin-only command gates, `/audit <topic>` slash command, and database-backed curation skip/filter logs.
+2. `block-2-2-advanced-trust-rules.md`: Multi-tier source trust levels, priority weighting, and source-level custom scoring modifiers.
+3. `block-2-3-topic-throttling.md`: Topic-specific pacing limits, cooldown checks, and database-backed deferred article queues.
+4. `block-2-4-similarity-clustering.md`: In-memory Jaccard similarity grouping on title tokens and appending related coverage links to existing embeds.
+5. `block-2-5-daily-digests.md`: Digest eligibility thresholds, accumulation storage, and scheduled daily/weekly summary publishers.
+

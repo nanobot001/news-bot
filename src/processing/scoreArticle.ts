@@ -52,8 +52,8 @@ export function scoreArticle(input: ScoreArticleInput): ScoreArticleResult {
   const hasBlocked = matchesAny(event.title, blockedTerms) || 
                      (event.summary ? matchesAny(event.summary, blockedTerms) : false);
   if (hasBlocked) {
-    score -= 20;
-    reasons.push("Blocked term matched (-20)");
+    score -= 100;
+    reasons.push("Blocked term matched (-100)");
   }
 
   // 5. Missing URL penalty

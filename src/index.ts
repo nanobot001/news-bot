@@ -1,5 +1,13 @@
 import "dotenv/config";
 
+process.on("unhandledRejection", (reason) => {
+  console.error("[Process] Unhandled Rejection:", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("[Process] Uncaught Exception:", error);
+});
+
 import { Events, REST, Routes } from "discord.js";
 
 import {
@@ -7,7 +15,12 @@ import {
   handlePingCommand,
   handleTestfeedCommand,
   handleLastpostsCommand,
-  handleReloadconfigCommand
+  handleReloadconfigCommand,
+  handleRefreshCommand,
+  handleStatsCommand,
+  handleSearchCommand,
+  handleTopicsCommand,
+  handleSourcesCommand
 } from "./bot/commands.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
 import { loadAppConfig } from "./config/loadConfig.js";
@@ -18,6 +31,14 @@ async function main(): Promise<void> {
   const appConfig = await loadAppConfig();
   const commandPayloads = getCommandRegistrationPayloads();
   const client = createDiscordClient();
+
+  client.on(Events.Error, (error) => {
+    console.error(`[Discord Client] Error:`, error);
+  });
+
+  client.on(Events.Warn, (info) => {
+    console.warn(`[Discord Client] Warning:`, info);
+  });
 
   console.log(
     `Starting Discord news bot shell with ${Object.keys(appConfig.topics).length} topics, ${Object.values(appConfig.sources).flat().length} sources, and ${commandPayloads.length} command payloads.`
@@ -77,8 +98,19 @@ async function main(): Promise<void> {
       await handleLastpostsCommand(interaction, appConfig);
     } else if (interaction.commandName === "reload-config") {
       await handleReloadconfigCommand(interaction, appConfig);
+    } else if (interaction.commandName === "refresh") {
+      await handleRefreshCommand(interaction, client, appConfig);
+    } else if (interaction.commandName === "stats") {
+      await handleStatsCommand(interaction, appConfig);
+    } else if (interaction.commandName === "search") {
+      await handleSearchCommand(interaction, appConfig);
+    } else if (interaction.commandName === "topics") {
+      await handleTopicsCommand(interaction, appConfig);
+    } else if (interaction.commandName === "sources") {
+      await handleSourcesCommand(interaction, appConfig);
     }
   });
+
 
   await client.login(discordConfig.token);
 }
