@@ -1,4 +1,4 @@
-# Block 2-3: Topic-Specific Throttling & Cooldowns
+# Block 2-6: Topic-Specific Throttling & Cooldowns
 
 ## Goal
 

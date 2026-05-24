@@ -1,4 +1,4 @@
-# Block 2-5: Topic Daily Digests
+# Block 2-8: Topic Daily Digests
 
 ## Goal
 

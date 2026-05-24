@@ -1,4 +1,4 @@
-# Block 2-1: Admin Authorization & Curation Audit Logs
+# Block 2-3: Admin Authorization & Curation Audit Logs
 
 ## Goal
 
