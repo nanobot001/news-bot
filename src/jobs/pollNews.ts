@@ -6,7 +6,8 @@ import { normalizeRssItem } from "../normalization/normalizeRssItem.js";
 import { checkDuplicate } from "../processing/dedupe.js";
 import { scoreArticle } from "../processing/scoreArticle.js";
 import { filterArticle } from "../processing/filterArticle.js";
-import { saveArticle } from "../storage/articleRepo.js";
+import { saveArticle, pruneOldArticles } from "../storage/articleRepo.js";
+import { ARTICLE_STATUSES, type ArticleStatus } from "../storage/articleStatus.js";
 import { formatArticleEmbed, postArticleToChannel } from "../bot/postEmbed.js";
 
 export type PollTopicCounts = {
@@ -22,6 +23,18 @@ export type PollError = {
   source: string;
   message: string;
 };
+
+function classifySkipStatus(reasons: string[]): ArticleStatus {
+  if (reasons.some((reason) => reason.includes("exceeds max age"))) {
+    return ARTICLE_STATUSES.SKIPPED_OLD;
+  }
+
+  if (reasons.some((reason) => reason.includes("below threshold"))) {
+    return ARTICLE_STATUSES.SKIPPED_LOW_SCORE;
+  }
+
+  return ARTICLE_STATUSES.SKIPPED_FILTERED;
+}
 
 /**
  * Runs a single, complete polling run for all topics and sources.
@@ -95,12 +108,18 @@ export async function pollNews(
             } else {
               const embed = formatArticleEmbed({ event, score: scoringResult.score });
               await postArticleToChannel(client, topicConfig.channelId, embed);
-              await saveArticle(event, scoringResult.score, new Date());
+              await saveArticle(event, scoringResult.score, new Date(), ARTICLE_STATUSES.POSTED);
               counts[topic].posted++;
             }
           } else {
             if (!isDryRun) {
-              await saveArticle(event, scoringResult.score);
+              await saveArticle(
+                event,
+                scoringResult.score,
+                null,
+                classifySkipStatus(filteringResult.reasons),
+                filteringResult.reasons.join("; ")
+              );
             } else {
               console.log(`[Dry Run] Would save article (unposted) with score: ${scoringResult.score}: "${event.title}"`);
             }
@@ -129,7 +148,18 @@ export async function runSinglePoll(client: Client, config: AppConfig): Promise<
   const errors: PollError[] = [];
   
   const counts = await pollNews(client, config, errors);
-  
+
+  // Database Pruning of old skipped/indexed articles
+  try {
+    const pruneDays = process.env.PRUNE_SKIPPED_DAYS ? parseInt(process.env.PRUNE_SKIPPED_DAYS, 10) : 7;
+    const prunedCount = await pruneOldArticles(pruneDays);
+    if (prunedCount > 0) {
+      console.log(`[Database Cleanup] Pruned ${prunedCount} old skipped/indexed articles.`);
+    }
+  } catch (pruneError) {
+    console.error(`[Database Cleanup] Error pruning old articles:`, pruneError);
+  }
+
   const endTime = new Date();
   const duration = endTime.getTime() - startTime.getTime();
   const totalPosted = Object.values(counts).reduce((acc, curr) => acc + curr.posted, 0);

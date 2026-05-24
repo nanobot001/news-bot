@@ -52,6 +52,8 @@ Store:
 - First seen date
 - Posted date
 - Score
+- Status (`INDEXED`, `POSTED`, or a `SKIPPED_*` status)
+- Status reason for filter/audit context
 - Raw JSON
 
 Deduplication should check RSS GUID when available, canonical URL hash, and title hash fallback.

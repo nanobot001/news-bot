@@ -4,6 +4,9 @@
   "private": true,
   "description": "Discord news bot MVP built as an extensible event pipeline.",
   "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -14,7 +17,7 @@
     "prisma:migrate": "prisma migrate dev",
     "test:storage": "node --import tsx --test tests/storage.test.ts",
     "test:bot": "node --import tsx --test tests/bot.test.ts",
-    "test:all": "node --import tsx --test tests/storage.test.ts tests/scoring.test.ts tests/bot.test.ts tests/polling.test.ts",
+    "test:all": "node --import tsx --test --test-concurrency=1 tests/storage.test.ts tests/scoring.test.ts tests/bot.test.ts tests/polling.test.ts",
     "test": "npm run test:all"
   },
   "dependencies": {

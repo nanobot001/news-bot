@@ -8,6 +8,7 @@ import { type AppConfig, reloadAppConfig } from "../config/loadConfig.js";
 import { getRecentlyPostedArticles } from "../storage/articleRepo.js";
 import { pollNews } from "../jobs/pollNews.js";
 import { prisma } from "../storage/prismaClient.js";
+import { formatArticleStatus } from "../storage/articleStatus.js";
 
 export const pingCommand = new SlashCommandBuilder()
   .setName("ping")
@@ -368,7 +369,9 @@ export async function handleSearchCommand(
       const timeStr = art.publishedAt ? `<t:${Math.floor(art.publishedAt.getTime() / 1000)}:R>` : "unknown time";
       const link = art.url ? `[${art.title}](${art.url})` : art.title;
       const scoreStr = art.score !== null ? `(Score: ${art.score})` : "";
-      const statusStr = art.postedAt ? "✅ Posted" : "❌ Skipped";
+      const statusText = formatArticleStatus(art.status, art.postedAt, art.statusReason);
+      const statusIcon = art.postedAt ? "✅" : "❌";
+      const statusStr = `${statusIcon} ${statusText}`;
       const line = `${i + 1}. [${art.topic}] ${link} ${scoreStr} - ${statusStr} - Published ${timeStr}\n`;
 
       if (responseText.length + line.length > 1950) {
@@ -463,4 +466,3 @@ export async function handleSourcesCommand(
     });
   }
 }
-

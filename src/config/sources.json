@@ -1,8 +1,8 @@
 {
-  "blue-jays": [
+  "jays": [
     {
       "name": "Jays Journal",
-      "url": "https://jaysjournal.com/feed/",
+      "url": "https://news.google.com/rss/search?q=site:jaysjournal.com+%22Blue+Jays%22",
       "trusted": true
     },
     {
@@ -57,7 +57,7 @@
     },
     {
       "name": "MLB.com Blue Jays",
-      "url": "https://www.mlb.com/feeds/news/rss/bluejays",
+      "url": "https://www.mlb.com/bluejays/feeds/news/rss.xml",
       "trusted": true
     },
     {
@@ -76,7 +76,7 @@
       "trusted": false
     }
   ],
-  "toronto-raptors": [
+  "raptors": [
     {
       "name": "Raptors Republic",
       "url": "https://raptorsrepublic.com/feed/",

@@ -3,6 +3,7 @@ import test from "node:test";
 import { scoreArticle } from "../src/processing/scoreArticle.js";
 import { filterArticle } from "../src/processing/filterArticle.js";
 import type { NormalizedEvent } from "../src/normalization/normalizedEvent.js";
+import { normalizeUrl } from "../src/processing/hashUtils.js";
 
 test("Scoring and Filtering Logic Suite", async (t) => {
   const dummyEvent: NormalizedEvent = {
@@ -254,6 +255,43 @@ test("Scoring and Filtering Logic Suite", async (t) => {
         isDuplicate: false
       });
       assert.equal(filterResult.shouldPost, false);
+    }
+  });
+
+  await t.test("should normalize various YouTube URLs to canonical format and strip tracking parameters", () => {
+    const cases = [
+      {
+        input: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        expected: "youtube.com/watch?v=dQw4w9WgXcQ",
+      },
+      {
+        input: "https://youtube.com/watch?v=dQw4w9WgXcQ&feature=shared&utm_source=test",
+        expected: "youtube.com/watch?v=dQw4w9WgXcQ",
+      },
+      {
+        input: "https://youtu.be/dQw4w9WgXcQ?feature=shared",
+        expected: "youtube.com/watch?v=dQw4w9WgXcQ",
+      },
+      {
+        input: "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+        expected: "youtube.com/watch?v=dQw4w9WgXcQ",
+      },
+      {
+        input: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+        expected: "youtube.com/watch?v=dQw4w9WgXcQ",
+      },
+      {
+        input: "https://example.com/news/article-one?utm_source=twitter&keep_me=1",
+        expected: "example.com/news/article-one?keep_me=1",
+      },
+      {
+        input: "https://www.example.com/news/article-one/",
+        expected: "example.com/news/article-one",
+      },
+    ];
+
+    for (const { input, expected } of cases) {
+      assert.equal(normalizeUrl(input), expected, `Failed for input: ${input}`);
     }
   });
 

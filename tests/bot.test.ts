@@ -1,12 +1,14 @@
 import { execSync } from "node:child_process";
-import { rmSync, existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, rmSync } from "node:fs";
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 import { formatArticleEmbed, postArticleToChannel } from "../src/bot/postEmbed.js";
 import type { NormalizedEvent } from "../src/normalization/normalizedEvent.js";
+import { ARTICLE_STATUSES } from "../src/storage/articleStatus.js";
 
 // Force test database configuration for database-touching command tests
 const TEST_DB_URL = "file:./dev-test-bot.db";
+const TEST_DB_FILE = "./prisma/dev-test-bot.db";
 process.env.DATABASE_URL = TEST_DB_URL;
 
 import { prisma } from "../src/storage/prismaClient.js";
@@ -37,6 +39,7 @@ import type { AppConfig } from "../src/config/loadConfig.js";
 before(async () => {
   console.log("Setting up isolated bot test database...");
   cleanUpTestFiles();
+  createEmptyTestDbFile();
 
   try {
     const output = execSync("npx prisma db push --skip-generate --accept-data-loss", {
@@ -73,6 +76,10 @@ function cleanUpTestFiles() {
       // Ignore
     }
   }
+}
+
+function createEmptyTestDbFile() {
+  closeSync(openSync(TEST_DB_FILE, "w"));
 }
 
 test("Discord Embed Formatting", async (t) => {
@@ -156,7 +163,7 @@ test("Discord Embed Formatting", async (t) => {
     const event: NormalizedEvent = {
       id: "yt-test",
       type: "news.article",
-      topic: "blue-jays",
+      topic: "jays",
       title: "Blue Jays YouTube Video",
       url: "https://www.youtube.com/watch?v=UCVPkZh_H6m_stW8hq-2-yNw",
       sourceName: "Toronto Blue Jays YouTube",
@@ -569,6 +576,61 @@ test("Slash Commands System", async (t) => {
     assert.ok(deferred);
     assert.ok(editedReply);
     assert.match(replyContent, /Unique Anime Magic Title/);
+    assert.match(replyContent, /Posted/);
+  });
+
+  await t.test("handleSearchCommand should show persisted skip reasons", async () => {
+    await prisma.article.deleteMany({});
+
+    const mock1 = {
+      id: "search-skip-1",
+      type: "news.article",
+      topic: "jays",
+      title: "Blue Jays Pinango Search Skip",
+      url: "https://example.com/search-skip",
+      sourceName: "Search Source",
+    };
+    await saveArticle(
+      mock1,
+      45,
+      null,
+      ARTICLE_STATUSES.SKIPPED_OLD,
+      "Article age of 25.6 hours exceeds max age of 24 hours"
+    );
+
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      options: {
+        getString: (name: string, required?: boolean) => {
+          if (name === "query") return "Pinango";
+          if (name === "topic") return "jays";
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { jays: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 20 } },
+      sources: { jays: [] }
+    };
+
+    await handleSearchCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /Blue Jays Pinango Search Skip/);
+    assert.match(replyContent, /Score: 45/);
+    assert.match(replyContent, /Skipped: too old/);
+    assert.match(replyContent, /25\.6 hours exceeds max age of 24 hours/);
   });
 
   await t.test("handleSearchCommand should handle no results gracefully", async () => {

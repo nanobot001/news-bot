@@ -19,6 +19,8 @@ model Article {
   firstSeenAt DateTime  @default(now())
   postedAt    DateTime?
   score       Int?
+  status      String    @default("INDEXED")
+  statusReason String?
   rawJson     String?
 
   @@id([id, topic])
@@ -26,4 +28,5 @@ model Article {
   @@index([urlHash])
   @@index([titleHash])
   @@index([postedAt])
+  @@index([status])
 }

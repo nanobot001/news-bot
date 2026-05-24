@@ -1,5 +1,5 @@
 {
-  "blue-jays": {
+  "jays": {
     "channelId": "1507578466982170686",
     "keywords": [
       "blue jays",
@@ -93,7 +93,7 @@
     ],
     "postThreshold": 20
   },
-  "toronto-raptors": {
+  "raptors": {
     "channelId": "1507578466982170686",
     "keywords": [
       "raptors",

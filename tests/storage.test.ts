@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { rmSync, existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, rmSync } from "node:fs";
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 
@@ -10,8 +10,9 @@ process.env.DATABASE_URL = TEST_DB_URL;
 
 // Import after setting env
 import { prisma } from "../src/storage/prismaClient.js";
-import { saveArticle, getArticleById } from "../src/storage/articleRepo.js";
+import { saveArticle, getArticleById, findDuplicateArticle, pruneOldArticles } from "../src/storage/articleRepo.js";
 import { checkDuplicate } from "../src/processing/dedupe.js";
+import { ARTICLE_STATUSES } from "../src/storage/articleStatus.js";
 import type { NormalizedEvent } from "../src/normalization/normalizedEvent.js";
 
 // Force color-free output for accessibility
@@ -22,6 +23,7 @@ before(async () => {
   console.log("Setting up isolated test database...");
   // Clear any existing test db
   cleanUpTestFiles();
+  createEmptyTestDbFile();
 
   try {
     // Capture output and write to stdout to avoid PowerShell coloring stderr red
@@ -61,6 +63,10 @@ function cleanUpTestFiles() {
       // Ignore
     }
   }
+}
+
+function createEmptyTestDbFile() {
+  closeSync(openSync(TEST_DB_FILE, "w"));
 }
 
 test("Storage and Deduplication System", async (t) => {
@@ -215,5 +221,96 @@ test("Storage and Deduplication System", async (t) => {
     // Now it should flag as duplicate because topic-c has posted it!
     assert.equal(resultPosted.isDuplicate, true);
     assert.equal(resultPosted.reason, "guid");
+  });
+
+  await t.test("should respect DEDUPE_WINDOW_DAYS setting for duplicate checking", async () => {
+    const oldEvent: NormalizedEvent = {
+      id: "old-guid-99",
+      type: "news.article",
+      topic: "sports",
+      title: "Ancient News Story",
+      url: "https://example.com/sports/ancient-1",
+      sourceName: "Sports News",
+    };
+
+    // Save article (which sets firstSeenAt to now)
+    const saved = await saveArticle(oldEvent, 15);
+
+    // Force firstSeenAt to 10 days ago
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    await prisma.article.update({
+      where: {
+        id_topic: { id: saved.id, topic: saved.topic },
+      },
+      data: {
+        firstSeenAt: tenDaysAgo,
+      },
+    });
+
+    // 1. With dedupe window of 7 days, 10-day-old article should be ignored (not a duplicate)
+    process.env.DEDUPE_WINDOW_DAYS = "7";
+    const res7 = await findDuplicateArticle("sports", "old-guid-99", "https://example.com/sports/ancient-1", "Ancient News Story");
+    assert.equal(res7, null);
+
+    // 2. With dedupe window of 14 days, 10-day-old article should be detected as a duplicate
+    process.env.DEDUPE_WINDOW_DAYS = "14";
+    const res14 = await findDuplicateArticle("sports", "old-guid-99", "https://example.com/sports/ancient-1", "Ancient News Story");
+    assert.ok(res14);
+    assert.equal(res14.isDuplicate, true);
+    assert.equal(res14.reason, "guid");
+
+    // Clean up env
+    delete process.env.DEDUPE_WINDOW_DAYS;
+  });
+
+  await t.test("should prune skipped old articles but save posted old articles", async () => {
+    // Clear any previous records to ensure an isolated count
+    await prisma.article.deleteMany({});
+
+    const skippedEvent: NormalizedEvent = {
+      id: "prune-skipped-1",
+      type: "news.article",
+      topic: "tech",
+      title: "Uninteresting Tech Story",
+      url: "https://example.com/tech/boring-1",
+      sourceName: "Tech Feed",
+    };
+
+    const postedEvent: NormalizedEvent = {
+      id: "prune-posted-1",
+      type: "news.article",
+      topic: "tech",
+      title: "Awesome Tech Story",
+      url: "https://example.com/tech/awesome-1",
+      sourceName: "Tech Feed",
+    };
+
+    // Save skipped article
+    const skipped = await saveArticle(skippedEvent, 5, null, ARTICLE_STATUSES.SKIPPED_LOW_SCORE);
+    // Save posted article
+    const posted = await saveArticle(postedEvent, 90, new Date(), ARTICLE_STATUSES.POSTED);
+
+    // Backdate both to 10 days ago
+    const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000);
+    await prisma.article.update({
+      where: { id_topic: { id: skipped.id, topic: skipped.topic } },
+      data: { firstSeenAt: tenDaysAgo },
+    });
+    await prisma.article.update({
+      where: { id_topic: { id: posted.id, topic: posted.topic } },
+      data: { firstSeenAt: tenDaysAgo },
+    });
+
+    // Run pruning for articles older than 7 days
+    const prunedCount = await pruneOldArticles(7);
+    assert.equal(prunedCount, 1); // Should prune only the skipped one
+
+    // Verify database state
+    const retrievedSkipped = await getArticleById("prune-skipped-1", "tech");
+    assert.equal(retrievedSkipped, null); // Pruned!
+
+    const retrievedPosted = await getArticleById("prune-posted-1", "tech");
+    assert.ok(retrievedPosted); // Kept!
+    assert.equal(retrievedPosted.id, "prune-posted-1");
   });
 });

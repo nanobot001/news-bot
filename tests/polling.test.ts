@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { rmSync, existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, rmSync } from "node:fs";
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 import type { Client } from "discord.js";
@@ -12,6 +12,7 @@ process.env.DATABASE_URL = TEST_DB_URL;
 // Import after setting env
 import { prisma } from "../src/storage/prismaClient.js";
 import { pollNews } from "../src/jobs/pollNews.js";
+import { ARTICLE_STATUSES } from "../src/storage/articleStatus.js";
 import type { AppConfig } from "../src/config/loadConfig.js";
 
 // Force color-free output for accessibility
@@ -19,10 +20,13 @@ process.env.NO_COLOR = "1";
 process.env.FORCE_COLOR = "0";
 
 const originalFetch = globalThis.fetch;
+const originalMaxArticleAgeHours = process.env.MAX_ARTICLE_AGE_HOURS;
 
 before(async () => {
+  process.env.MAX_ARTICLE_AGE_HOURS = "0";
   console.log("Setting up isolated polling test database...");
   cleanUpTestFiles();
+  createEmptyTestDbFile();
 
   try {
     const output = execSync("npx prisma db push --skip-generate --accept-data-loss", {
@@ -42,6 +46,11 @@ after(async () => {
   await prisma.$disconnect();
   cleanUpTestFiles();
   globalThis.fetch = originalFetch;
+  if (originalMaxArticleAgeHours === undefined) {
+    delete process.env.MAX_ARTICLE_AGE_HOURS;
+  } else {
+    process.env.MAX_ARTICLE_AGE_HOURS = originalMaxArticleAgeHours;
+  }
 });
 
 function cleanUpTestFiles() {
@@ -62,8 +71,18 @@ function cleanUpTestFiles() {
   }
 }
 
+function createEmptyTestDbFile() {
+  closeSync(openSync(TEST_DB_FILE, "w"));
+}
+
 // Helper to create simple RSS XML mock
-function createRssXml(title: string, link: string, guid: string, desc: string): string {
+function createRssXml(
+  title: string,
+  link: string,
+  guid: string,
+  desc: string,
+  pubDate = "Sat, 23 May 2026 12:00:00 GMT"
+): string {
   return `
 <rss version="2.0">
   <channel>
@@ -74,7 +93,7 @@ function createRssXml(title: string, link: string, guid: string, desc: string): 
       <title>${title}</title>
       <link>${link}</link>
       <guid>${guid}</guid>
-      <pubDate>Sat, 23 May 2026 12:00:00 GMT</pubDate>
+      <pubDate>${pubDate}</pubDate>
       <description>${desc}</description>
     </item>
   </channel>
@@ -162,6 +181,7 @@ test("Scheduled Polling Pipeline System", async (t) => {
     assert.equal(saved.title, "Breaking News: Ultimate AI Release!");
     assert.ok(saved.score >= 10);
     assert.ok(saved.postedAt !== null);
+    assert.equal(saved.status, ARTICLE_STATUSES.POSTED);
   });
 
   await t.test("should skip duplicate articles on subsequent runs", async () => {
@@ -309,5 +329,63 @@ test("Scheduled Polling Pipeline System", async (t) => {
     // Verify it is NOT saved in the database
     const saved = await prisma.article.findFirst({ where: { id: "guid-dry" } });
     assert.equal(saved, null);
+  });
+
+  await t.test("should save skip status and reason for articles older than max age", async () => {
+    postedEmbeds.length = 0;
+    await prisma.article.deleteMany({});
+    delete process.env.DRY_RUN;
+    process.env.MAX_ARTICLE_AGE_HOURS = "24";
+
+    try {
+      const xml = createRssXml(
+        "Old AI Breakthrough",
+        "https://example.com/ai/old",
+        "guid-old-ai",
+        "A breakthrough AI story from long ago.",
+        "Mon, 01 Jan 2024 12:00:00 GMT"
+      );
+
+      globalThis.fetch = async () => {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => xml,
+        } as Response;
+      };
+
+      const config: AppConfig = {
+        topics: {
+          ai: {
+            channelId: "123456789",
+            postThreshold: 10,
+            keywords: ["AI", "breakthrough"],
+            blockedTerms: [],
+          },
+        },
+        sources: {
+          ai: [
+            {
+              name: "AI Blog",
+              url: "https://example.com/ai/rss",
+              trusted: true,
+            },
+          ],
+        },
+      };
+
+      const counts = await pollNews(mockClient, config);
+
+      assert.equal(counts.ai.posted, 0);
+      assert.equal(counts.ai.skipped, 1);
+      assert.equal(postedEmbeds.length, 0);
+
+      const saved = await prisma.article.findFirst({ where: { id: "guid-old-ai" } });
+      assert.ok(saved);
+      assert.equal(saved.status, ARTICLE_STATUSES.SKIPPED_OLD);
+      assert.match(saved.statusReason ?? "", /exceeds max age of 24 hours/);
+    } finally {
+      process.env.MAX_ARTICLE_AGE_HOURS = "0";
+    }
   });
 });
