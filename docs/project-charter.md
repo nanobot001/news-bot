@@ -59,11 +59,13 @@ Phase 1 is the MVP news bot: RSS to normalized news event to dedupe to score to 
 
 Phase 2 improves live curation and operations with heart reaction favorites, favorite recall, optional Instapaper saves, reaction-based email forwarding, admin keyword tuning, better trust levels, per-topic posting limits, daily digests, grouped related articles, admin-only commands, and improved logging.
 
-Phase 3 adds optional LLM-assisted curation for summaries, classification, "why it matters" explanations, posting decisions, and daily digests. LLMs must not replace deterministic dedupe or baseline rules.
+Phase 3 adds optional LLM-assisted curation for summaries, classification, "why it matters" explanations, posting decisions, and daily digest summaries. LLMs must not replace deterministic dedupe or baseline rules. This phase should begin introducing agent-shaped boundaries, where LLM behavior is governed by explicit instructions, allowed tools, memory scope, and audit logs.
 
 Phase 4 adds multiple source adapters such as Plex/Tautulli events, Reddit saved items, Gmail summaries, GitHub releases, and local script or webhook events.
 
-Phase 5 supports multiple bot identities from shared backend config, such as news, Plex, Reddit, Gmail, and admin bots.
+Phase 5 supports multiple bot identities from shared backend config, such as news, Plex, Reddit, Gmail, and admin bots. Each bot identity should have its own token, Discord identity, permissions scope, channels, command set, source access, instructions, memory scope, allowed tools, and tone/personality config.
+
+The future harness goal is one shared runtime with many configured bot or agent identities. Spinning out a new bot should eventually mean adding a config profile, not rewriting the system.
 
 ## Non-Goals For MVP
 
