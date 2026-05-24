@@ -429,12 +429,27 @@ export async function handleTopicsCommand(
     for (const [topic, settings] of Object.entries(appConfig.topics)) {
       responseText += `- **${topic}**\n`;
       responseText += `  * Channel: <#${settings.channelId}>\n`;
-      responseText += `  * Threshold: \`${settings.postThreshold}\`\n`;
-      responseText += `  * Keywords (${settings.keywords.length}): ${settings.keywords.map(k => `\`${k}\``).join(", ") || "*None*"}\n`;
-      if (settings.blockedTerms && settings.blockedTerms.length > 0) {
-        responseText += `  * Blocked Terms (${settings.blockedTerms.length}): ${settings.blockedTerms.map(b => `\`${b}\``).join(", ")}\n`;
+      if (settings.emoji) {
+        responseText += `  * Emoji: ${settings.emoji}\n`;
       }
-      responseText += `\n`;
+      responseText += `  * Threshold: \`${settings.postThreshold}\`\n`;
+
+      const maxKeywordsToShow = 10;
+      let keywordsStr = settings.keywords.slice(0, maxKeywordsToShow).map(k => `\`${k}\``).join(", ");
+      if (settings.keywords.length > maxKeywordsToShow) {
+        keywordsStr += `, ... and ${settings.keywords.length - maxKeywordsToShow} more`;
+      }
+      responseText += `  * Keywords (${settings.keywords.length}): ${keywordsStr || "*None*"}\n`;
+
+      if (settings.blockedTerms && settings.blockedTerms.length > 0) {
+        const maxBlockedToShow = 10;
+        let blockedStr = settings.blockedTerms.slice(0, maxBlockedToShow).map(b => `\`${b}\``).join(", ");
+        if (settings.blockedTerms.length > maxBlockedToShow) {
+          blockedStr += `, ... and ${settings.blockedTerms.length - maxBlockedToShow} more`;
+        }
+        responseText += `  * Blocked Terms (${settings.blockedTerms.length}): ${blockedStr}\n`;
+      }
+      responseText += '\n';
     }
 
     await interaction.reply({

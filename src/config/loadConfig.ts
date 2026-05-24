@@ -5,6 +5,7 @@ export type TopicConfig = {
   keywords: string[];
   blockedTerms: string[];
   postThreshold: number;
+  emoji?: string;
 };
 
 export type SourceConfig = {
@@ -62,11 +63,16 @@ function validateTopics(value: unknown): Record<string, TopicConfig> {
       throw new Error(`topics.${topicName}.postThreshold must be a number`);
     }
 
+    if (topic.emoji !== undefined && typeof topic.emoji !== "string") {
+      throw new Error(`topics.${topicName}.emoji must be a string`);
+    }
+
     topics[topicName] = {
       channelId: topic.channelId,
       keywords: validateStringArray(topic.keywords, `topics.${topicName}.keywords`),
       blockedTerms: validateStringArray(topic.blockedTerms, `topics.${topicName}.blockedTerms`),
-      postThreshold: topic.postThreshold
+      postThreshold: topic.postThreshold,
+      emoji: topic.emoji as string | undefined
     };
   }
 

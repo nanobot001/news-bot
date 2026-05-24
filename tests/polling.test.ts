@@ -146,6 +146,7 @@ test("Scheduled Polling Pipeline System", async (t) => {
           postThreshold: 10,
           keywords: ["AI", "breakthrough"],
           blockedTerms: ["spam"],
+          emoji: "<:ai:12345>",
         },
       },
       sources: {
@@ -173,7 +174,7 @@ test("Scheduled Polling Pipeline System", async (t) => {
     // Assert Discord posting
     assert.equal(postedEmbeds.length, 1);
     assert.equal(postedEmbeds[0].channelId, "123456789");
-    assert.equal(postedEmbeds[0].embed.data.title, "Breaking News: Ultimate AI Release!");
+    assert.equal(postedEmbeds[0].embed.data.title, "<:ai:12345> Breaking News: Ultimate AI Release!");
 
     // Assert database save
     const saved = await prisma.article.findFirst({ where: { id: "guid-ai-1" } });

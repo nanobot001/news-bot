@@ -120,7 +120,7 @@ export async function pollNews(
               console.log(`[Dry Run] Would post article: "${event.title}" to channel: ${topicConfig.channelId}`);
               counts[topic].skipped++;
             } else {
-              const embed = formatArticleEmbed({ event, score: scoringResult.score });
+              const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji });
               await postArticleToChannel(client, topicConfig.channelId, embed);
               await saveArticle(event, scoringResult.score, new Date(), ARTICLE_STATUSES.POSTED);
               counts[topic].posted++;
