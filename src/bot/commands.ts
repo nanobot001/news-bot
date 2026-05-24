@@ -5,7 +5,7 @@ import {
   type Client
 } from "discord.js";
 import { type AppConfig, reloadAppConfig } from "../config/loadConfig.js";
-import { getRecentlyPostedArticles } from "../storage/articleRepo.js";
+import { getArticlesForTopic } from "../storage/articleRepo.js";
 import { pollNews } from "../jobs/pollNews.js";
 import { prisma } from "../storage/prismaClient.js";
 import { formatArticleStatus } from "../storage/articleStatus.js";
@@ -25,11 +25,25 @@ export const testfeedCommand = new SlashCommandBuilder()
 
 export const lastpostsCommand = new SlashCommandBuilder()
   .setName("lastposts")
-  .setDescription("Show recently posted articles for a specific topic.")
+  .setDescription("Show recently ingested articles for a specific topic.")
   .addStringOption(option =>
     option.setName("topic")
       .setDescription("The topic to retrieve")
       .setRequired(true)
+  )
+  .addStringOption(option =>
+    option.setName("status")
+      .setDescription("Filter by status (default: posted)")
+      .setRequired(false)
+      .addChoices(
+        { name: "Posted Only", value: "posted" },
+        { name: "Unposted/Skipped", value: "unposted" }
+      )
+  )
+  .addIntegerOption(option =>
+    option.setName("hours")
+      .setDescription("Limit results to articles ingested in the last N hours")
+      .setRequired(false)
   );
 
 export const reloadconfigCommand = new SlashCommandBuilder()
@@ -153,6 +167,8 @@ export async function handleLastpostsCommand(
   appConfig: AppConfig
 ): Promise<void> {
   const topic = interaction.options.getString("topic", true);
+  const status = (interaction.options.getString("status") ?? "posted") as "posted" | "unposted";
+  const hours = interaction.options.getInteger("hours");
 
   if (!appConfig.topics[topic]) {
     const configured = Object.keys(appConfig.topics).join(", ");
@@ -165,22 +181,35 @@ export async function handleLastpostsCommand(
 
   try {
     await interaction.deferReply({ ephemeral: true });
-    const articles = await getRecentlyPostedArticles(topic, 10);
+    const articles = await getArticlesForTopic(topic, status, hours, 10);
 
+    const hoursStr = hours ? ` (last ${hours} hours)` : "";
     if (articles.length === 0) {
       await interaction.editReply({
-        content: `No recently posted articles found for topic: "${topic}".`
+        content: `No recently ${status} articles found for topic: "${topic}"${hoursStr}.`
       });
       return;
     }
 
-    let responseText = `**Recently posted articles for topic: "${topic}"**\n\n`;
+    const titlePrefix = status === "posted" ? "posted" : "ingested (unposted)";
+    let responseText = `**Recently ${titlePrefix} articles for topic: "${topic}"${hoursStr}**\n\n`;
     for (let i = 0; i < articles.length; i++) {
       const art = articles[i];
-      const timeStr = art.postedAt ? `<t:${Math.floor(art.postedAt.getTime() / 1000)}:R>` : "unknown time";
+      const timeStr = status === "posted" && art.postedAt
+        ? `<t:${Math.floor(art.postedAt.getTime() / 1000)}:R>`
+        : `<t:${Math.floor(art.firstSeenAt.getTime() / 1000)}:R>`;
+
+      const timeLabel = status === "posted" ? "Posted" : "Ingested";
       const link = art.url ? `[${art.title}](${art.url})` : art.title;
       const scoreStr = art.score !== null ? `(Score: ${art.score})` : "";
-      const line = `${i + 1}. ${link} ${scoreStr} - Posted ${timeStr}\n`;
+
+      let line = "";
+      if (status === "posted") {
+        line = `${i + 1}. ✅ ${link} ${scoreStr} - ${timeLabel} ${timeStr}\n`;
+      } else {
+        const statusText = formatArticleStatus(art.status, art.postedAt, art.statusReason);
+        line = `${i + 1}. ❌ [${statusText}] ${link} ${scoreStr} - ${timeLabel} ${timeStr}\n`;
+      }
 
       if (responseText.length + line.length > 1950) {
         responseText += `\n*...and ${articles.length - i} more items (truncated).*`;
@@ -193,7 +222,7 @@ export async function handleLastpostsCommand(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     await interaction.editReply({
-      content: `Failed to fetch recently posted articles: ${msg}`
+      content: `Failed to fetch recently ${status} articles: ${msg}`
     });
   }
 }

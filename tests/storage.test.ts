@@ -10,7 +10,7 @@ process.env.DATABASE_URL = TEST_DB_URL;
 
 // Import after setting env
 import { prisma } from "../src/storage/prismaClient.js";
-import { saveArticle, getArticleById, findDuplicateArticle, pruneOldArticles } from "../src/storage/articleRepo.js";
+import { saveArticle, getArticleById, findDuplicateArticle, pruneOldArticles, getArticlesForTopic } from "../src/storage/articleRepo.js";
 import { checkDuplicate } from "../src/processing/dedupe.js";
 import { ARTICLE_STATUSES } from "../src/storage/articleStatus.js";
 import type { NormalizedEvent } from "../src/normalization/normalizedEvent.js";
@@ -221,6 +221,83 @@ test("Storage and Deduplication System", async (t) => {
     // Now it should flag as duplicate because topic-c has posted it!
     assert.equal(resultPosted.isDuplicate, true);
     assert.equal(resultPosted.reason, "guid");
+  });
+
+  await t.test("should retrieve articles with status and timeframe filtering", async () => {
+    const topic = "test-filtering";
+    
+    // Create an event that is posted
+    const postedEvent: NormalizedEvent = {
+      id: "filter-posted",
+      type: "news.article",
+      topic,
+      title: "Posted Article",
+      url: "https://example.com/posted",
+      sourceName: "Source Filter",
+      publishedAt: new Date().toISOString(),
+    };
+    await saveArticle(postedEvent, 10, new Date(), "POSTED");
+
+    // Create an event that is unposted
+    const unpostedEvent: NormalizedEvent = {
+      id: "filter-unposted",
+      type: "news.article",
+      topic,
+      title: "Unposted Article",
+      url: "https://example.com/unposted",
+      sourceName: "Source Filter",
+      publishedAt: new Date().toISOString(),
+    };
+    await saveArticle(unpostedEvent, 5, null, "SKIPPED_LOW_SCORE");
+
+    // Retrieve posted articles
+    const posted = await getArticlesForTopic(topic, "posted");
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].id, "filter-posted");
+
+    // Retrieve unposted articles
+    const unposted = await getArticlesForTopic(topic, "unposted");
+    assert.equal(unposted.length, 1);
+    assert.equal(unposted[0].id, "filter-unposted");
+
+    // Test timeframe filtering:
+    // 1. Cutoff of 24 hours: both should match
+    const within24 = await getArticlesForTopic(topic, "posted", 24);
+    assert.equal(within24.length, 1);
+
+    // 2. Mock an old unposted article (5 hours ago)
+    const oldUnpostedEvent: NormalizedEvent = {
+      id: "filter-old-unposted",
+      type: "news.article",
+      topic,
+      title: "Old Unposted Article",
+      url: "https://example.com/old-unposted",
+      sourceName: "Source Filter",
+      publishedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+    };
+    await saveArticle(oldUnpostedEvent, 3, null, "SKIPPED_OLD");
+    
+    // Manually set firstSeenAt to 5 hours ago in DB
+    await prisma.article.update({
+      where: {
+        id_topic: {
+          id: "filter-old-unposted",
+          topic,
+        },
+      },
+      data: {
+        firstSeenAt: new Date(Date.now() - 5 * 60 * 60 * 1000),
+      },
+    });
+
+    // If we limit to 3 hours, the old one should be excluded
+    const limit3Hours = await getArticlesForTopic(topic, "unposted", 3);
+    assert.equal(limit3Hours.length, 1);
+    assert.equal(limit3Hours[0].id, "filter-unposted");
+
+    // If we limit to 6 hours, both unposted should be returned
+    const limit6Hours = await getArticlesForTopic(topic, "unposted", 6);
+    assert.equal(limit6Hours.length, 2);
   });
 
   await t.test("should respect DEDUPE_WINDOW_DAYS setting for duplicate checking", async () => {

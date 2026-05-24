@@ -367,6 +367,9 @@ test("Slash Commands System", async (t) => {
         getString: (name: string) => {
           if (name === "topic") return "anime";
           return null;
+        },
+        getInteger: (name: string) => {
+          return null;
         }
       },
       deferReply: async (options: any) => {
@@ -391,6 +394,58 @@ test("Slash Commands System", async (t) => {
     assert.match(replyContent, /Score: 85/);
   });
 
+  await t.test("handleLastpostsCommand should respect unposted status and timeframe options", async () => {
+    await prisma.article.deleteMany({});
+
+    // Save a test article that was skipped (unposted)
+    const mockArticle = {
+      id: "art-unposted",
+      type: "news.article",
+      topic: "anime",
+      title: "Unposted Test",
+      url: "https://example.com/unposted",
+      sourceName: "Slash Source",
+    };
+    await saveArticle(mockArticle, 40, null, ARTICLE_STATUSES.SKIPPED_LOW_SCORE);
+
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      options: {
+        getString: (name: string) => {
+          if (name === "topic") return "anime";
+          if (name === "status") return "unposted";
+          return null;
+        },
+        getInteger: (name: string) => {
+          if (name === "hours") return 5;
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 50 } },
+      sources: { anime: [] }
+    };
+
+    await handleLastpostsCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /Unposted Test/);
+    assert.match(replyContent, /Score: 40/);
+    assert.match(replyContent, /Skipped: low score/);
+  });
+
   await t.test("handleLastpostsCommand should handle unknown topic gracefully", async () => {
     let replied = false;
     let replyContent = "";
@@ -399,6 +454,9 @@ test("Slash Commands System", async (t) => {
       options: {
         getString: (name: string) => {
           if (name === "topic") return "nonexistent-topic";
+          return null;
+        },
+        getInteger: (name: string) => {
           return null;
         }
       },

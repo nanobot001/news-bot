@@ -167,6 +167,35 @@ export async function getRecentlyPostedArticles(topic: string, limit = 10): Prom
 }
 
 /**
+ * Retrieves articles for a topic with optional filters for status (posted/unposted) and timeframe (in hours).
+ */
+export async function getArticlesForTopic(
+  topic: string,
+  statusFilter: "posted" | "unposted",
+  hoursLimit?: number | null,
+  limit = 10
+): Promise<Article[]> {
+  const whereClause: any = { topic };
+
+  if (statusFilter === "posted") {
+    whereClause.postedAt = { not: null };
+  } else {
+    whereClause.postedAt = null;
+  }
+
+  if (hoursLimit !== undefined && hoursLimit !== null && hoursLimit > 0) {
+    const cutoff = new Date(Date.now() - hoursLimit * 60 * 60 * 1000);
+    whereClause.firstSeenAt = { gte: cutoff };
+  }
+
+  return prisma.article.findMany({
+    where: whereClause,
+    orderBy: statusFilter === "posted" ? { postedAt: "desc" } : { firstSeenAt: "desc" },
+    take: limit,
+  });
+}
+
+/**
  * Prunes skipped/indexed articles that are older than the specified days.
  * Keeps posted articles forever.
  */

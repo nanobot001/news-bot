@@ -338,12 +338,13 @@ test("Scheduled Polling Pipeline System", async (t) => {
     process.env.MAX_ARTICLE_AGE_HOURS = "24";
 
     try {
+      const pubDate25h = new Date(Date.now() - 25 * 60 * 60 * 1000).toUTCString();
       const xml = createRssXml(
         "Old AI Breakthrough",
         "https://example.com/ai/old",
         "guid-old-ai",
         "A breakthrough AI story from long ago.",
-        "Mon, 01 Jan 2024 12:00:00 GMT"
+        pubDate25h
       );
 
       globalThis.fetch = async () => {

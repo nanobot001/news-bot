@@ -71,6 +71,20 @@ export async function pollNews(
         for (const item of result.items) {
           counts[topic].checked++;
           const event = normalizeRssItem({ topic, source, item });
+
+          // Pre-filter: If the article publication date is older than DEDUPE_WINDOW_DAYS, ignore it entirely without database hits/writes.
+          if (event.publishedAt) {
+            const pubDate = new Date(event.publishedAt);
+            if (!isNaN(pubDate.getTime())) {
+              const dedupeWindowDays = process.env.DEDUPE_WINDOW_DAYS ? parseInt(process.env.DEDUPE_WINDOW_DAYS, 10) : 7;
+              const maxAgeMs = dedupeWindowDays * 24 * 60 * 60 * 1000;
+              if (Date.now() - pubDate.getTime() > maxAgeMs) {
+                counts[topic].skipped++;
+                continue;
+              }
+            }
+          }
+
           const sharingTopics = Object.entries(config.topics)
             .filter(([_, tc]) => tc.channelId === topicConfig.channelId)
             .map(([t]) => t);
