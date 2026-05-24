@@ -4,6 +4,7 @@ import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
 export type ArticleEmbedInput = {
   event: NormalizedEvent;
   score: number;
+  emoji?: string;
 };
 
 /**
@@ -42,10 +43,11 @@ function extractYoutubeVideoId(urlStr: string): string | null {
  * Formats a normalized article event into a rich Discord Embed.
  */
 export function formatArticleEmbed(input: ArticleEmbedInput): EmbedBuilder {
-  const { event, score } = input;
+  const { event, score, emoji } = input;
+  const title = emoji ? `${emoji} ${event.title}` : event.title;
   
   const embed = new EmbedBuilder()
-    .setTitle(event.title)
+    .setTitle(title)
     .setURL(event.url)
     .setAuthor({ name: event.sourceName })
     .setColor(0x5865F2); // Premium Discord Blurple

@@ -1,6 +1,7 @@
 {
   "jays": {
     "channelId": "1507578466982170686",
+    "emoji": "<:jays:1508144467230724217>",
     "keywords": [
       "blue jays",
       "jays",
@@ -95,6 +96,7 @@
   },
   "raptors": {
     "channelId": "1507578466982170686",
+    "emoji": "<:raptors:1508144470539894973>",
     "keywords": [
       "raptors",
       "toronto raptors",
@@ -186,6 +188,7 @@
   },
   "nba": {
     "channelId": "1507578466982170686",
+    "emoji": "<:nba:1508144469835255951>",
     "keywords": [
       "nba",
       "basketball",
@@ -274,6 +277,7 @@
   },
   "ai": {
     "channelId": "1507578466982170686",
+    "emoji": "<:ai:1508144466307842129>",
     "keywords": [
       "ai",
       "artificial intelligence",

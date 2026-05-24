@@ -174,6 +174,22 @@ test("Discord Embed Formatting", async (t) => {
 
     assert.equal(data.image?.url, "https://img.youtube.com/vi/UCVPkZh_H6m_stW8hq-2-yNw/hqdefault.jpg");
   });
+
+  await t.test("should prefix the embed title with an inline topic emoji", () => {
+    const event: NormalizedEvent = {
+      id: "emoji-test",
+      type: "news.article",
+      topic: "ai",
+      title: "AI Story",
+      url: "https://example.com/ai/story",
+      sourceName: "AI Source",
+    };
+
+    const embed = formatArticleEmbed({ event, score: 80, emoji: "<:ai:12345>" });
+    const data = embed.toJSON();
+
+    assert.equal(data.title, "<:ai:12345> AI Story");
+  });
 });
 
 test("Discord Message Posting (Mocked)", async (t) => {
@@ -216,6 +232,48 @@ test("Discord Message Posting (Mocked)", async (t) => {
     assert.ok(sentPayload);
     assert.ok(sentPayload.embeds);
     assert.equal(sentPayload.embeds[0], embed);
+    assert.equal(sentPayload.content, undefined);
+  });
+
+  await t.test("should fetch text channel and send an emoji-prefixed embed without message content", async () => {
+    let sentPayload: any = null;
+    let fetchedChannelId: string | null = null;
+
+    const mockChannel = {
+      isTextBased() { return true; },
+      send(payload: any) {
+        sentPayload = payload;
+        return Promise.resolve({});
+      }
+    };
+
+    const mockClient = {
+      channels: {
+        fetch(channelId: string) {
+          fetchedChannelId = channelId;
+          return Promise.resolve(mockChannel);
+        }
+      }
+    } as any;
+
+    const event: NormalizedEvent = {
+      id: "test-id",
+      type: "news.article",
+      topic: "anime",
+      title: "Test Title",
+      url: "https://example.com/test",
+      sourceName: "Test Source",
+    };
+    const embed = formatArticleEmbed({ event, score: 80, emoji: "<:emoji:12345>" });
+
+    await postArticleToChannel(mockClient, "1234567890", embed);
+
+    assert.equal(fetchedChannelId, "1234567890");
+    assert.ok(sentPayload);
+    assert.ok(sentPayload.embeds);
+    assert.equal(sentPayload.embeds[0], embed);
+    assert.equal(sentPayload.content, undefined);
+    assert.equal(sentPayload.embeds[0].data.title, "<:emoji:12345> Test Title");
   });
 
   await t.test("should throw error if channel is not found", async () => {
@@ -737,7 +795,7 @@ test("Slash Commands System", async (t) => {
 
     const mockConfig: AppConfig = {
       topics: {
-        anime: { channelId: "12345", keywords: ["magic", "goku"], blockedTerms: ["boring"], postThreshold: 70 }
+        anime: { channelId: "12345", keywords: ["magic", "goku"], blockedTerms: ["boring"], postThreshold: 70, emoji: "<:anime:9876>" }
       },
       sources: { anime: [] }
     };
@@ -745,9 +803,39 @@ test("Slash Commands System", async (t) => {
     await handleTopicsCommand(mockInteraction, mockConfig);
     assert.ok(replied);
     assert.match(replyContent, /Configured News Topics/);
+    assert.match(replyContent, /Emoji: <:anime:9876>/);
     assert.match(replyContent, /Threshold: `70`/);
     assert.match(replyContent, /Keywords \(2\): `magic`, `goku`/);
     assert.match(replyContent, /Blocked Terms \(1\): `boring`/);
+  });
+
+  await t.test("handleTopicsCommand should truncate keywords and blocked terms when they exceed 10 items", async () => {
+    let replied = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      reply: async (options: any) => {
+        replied = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: {
+        anime: {
+          channelId: "12345",
+          keywords: ["k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8", "k9", "k10", "k11", "k12"],
+          blockedTerms: ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "b10", "b11"],
+          postThreshold: 70
+        }
+      },
+      sources: { anime: [] }
+    };
+
+    await handleTopicsCommand(mockInteraction, mockConfig);
+    assert.ok(replied);
+    assert.match(replyContent, /Keywords \(12\): `k1`, `k2`[\s\S]+, ... and 2 more/);
+    assert.match(replyContent, /Blocked Terms \(11\): `b1`, `b2`[\s\S]+, ... and 1 more/);
   });
 
   await t.test("handleSourcesCommand should list sources", async () => {
