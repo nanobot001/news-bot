@@ -16,9 +16,11 @@ Implement one block at a time. The roadmap in `docs/project-charter.md` is autho
 
 ## Phase 2 Block Sequence: Curation Enhancements
 
-1. `block-2-1-admin-auth-audit.md`: Admin-only command gates, `/audit <topic>` slash command, and database-backed curation skip/filter logs.
-2. `block-2-2-advanced-trust-rules.md`: Multi-tier source trust levels, priority weighting, and source-level custom scoring modifiers.
-3. `block-2-3-topic-throttling.md`: Topic-specific pacing limits, cooldown checks, and database-backed deferred article queues.
-4. `block-2-4-similarity-clustering.md`: In-memory Jaccard similarity grouping on title tokens and appending related coverage links to existing embeds.
-5. `block-2-5-daily-digests.md`: Digest eligibility thresholds, accumulation storage, and scheduled daily/weekly summary publishers.
-
+1. `block-2-1-heart-reaction-favorites.md`: Heart reactions on posted articles, local favorite recall, and optional Instapaper Simple API saves.
+2. `block-2-2-reaction-email-forwarding.md`: Dedicated reaction forwarding that emails the article URL and metadata to a configured recipient.
+3. `block-2-3-admin-auth-audit.md`: Admin-only command gates, `/audit <topic>` slash command, and database-backed curation skip/filter logs.
+4. `block-2-4-topic-keyword-management.md`: Unified `/keyword` command for full keyword inspection plus admin-only add/remove operations that persist to config.
+5. `block-2-5-advanced-trust-rules.md`: Multi-tier source trust levels, priority weighting, and source-level custom scoring modifiers.
+6. `block-2-6-topic-throttling.md`: Topic-specific pacing limits, cooldown checks, and database-backed deferred article queues.
+7. `block-2-7-similarity-clustering.md`: In-memory Jaccard similarity grouping on title tokens and appending related coverage links to existing embeds.
+8. `block-2-8-daily-digests.md`: Digest eligibility thresholds, accumulation storage, and scheduled daily/weekly summary publishers.

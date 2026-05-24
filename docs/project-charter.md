@@ -57,7 +57,7 @@ The MVP is complete when:
 
 Phase 1 is the MVP news bot: RSS to normalized news event to dedupe to score to Discord embed to SQLite.
 
-Phase 2 improves curation with better trust levels, per-topic posting limits, daily digests, grouped related articles, admin-only commands, and improved logging.
+Phase 2 improves live curation and operations with heart reaction favorites, favorite recall, optional Instapaper saves, reaction-based email forwarding, admin keyword tuning, better trust levels, per-topic posting limits, daily digests, grouped related articles, admin-only commands, and improved logging.
 
 Phase 3 adds optional LLM-assisted curation for summaries, classification, "why it matters" explanations, posting decisions, and daily digests. LLMs must not replace deterministic dedupe or baseline rules.
 

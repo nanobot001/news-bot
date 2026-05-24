@@ -1,4 +1,4 @@
-# Block 2-2: Advanced Trust Levels & Fine-Grained Rules
+# Block 2-5: Advanced Trust Levels & Fine-Grained Rules
 
 ## Goal
 
