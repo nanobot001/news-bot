@@ -1,5 +1,10 @@
 # Block 2-1: Heart Reaction Favorites & Instapaper Save
 
+> Status: Implemented on 2026-05-25 (Addendum: Two-Way Favorite Deletion).
+> Result: Implemented.
+> Verification: `npm run typecheck` and `npm test` - passed.
+> Notes: Heart reaction favorites, /favorites command, optional Instapaper sync, and two-way deletion (removing reactions and /unfavorite command with autocomplete) fully implemented, tested, and verified.
+
 ## Goal
 
 Let each Discord user mark valuable posted articles with a heart reaction, persist those personal favorites locally, recall them with useful filters, and optionally save favorited article URLs to the operator's Instapaper account using the Instapaper Simple API.
@@ -70,4 +75,4 @@ Let each Discord user mark valuable posted articles with a heart reaction, persi
 
 ## Status
 
-Pending.
+Implemented.

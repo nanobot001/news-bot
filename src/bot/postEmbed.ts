@@ -1,4 +1,4 @@
-import { EmbedBuilder, type Client, type TextBasedChannel } from "discord.js";
+import { EmbedBuilder, type Client, type TextBasedChannel, type Message } from "discord.js";
 import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
 
 export type ArticleEmbedInput = {
@@ -84,7 +84,7 @@ export async function postArticleToChannel(
   client: Client,
   channelId: string,
   embed: EmbedBuilder
-): Promise<void> {
+): Promise<Message> {
   const channel = await client.channels.fetch(channelId);
   if (!channel) {
     throw new Error(`Channel not found in Discord: ${channelId}`);
@@ -92,5 +92,6 @@ export async function postArticleToChannel(
   if (!channel.isTextBased()) {
     throw new Error(`Channel is not text-based: ${channelId}`);
   }
-  await (channel as any).send({ embeds: [embed] });
+  return await (channel as any).send({ embeds: [embed] });
 }
+

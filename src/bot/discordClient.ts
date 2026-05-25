@@ -1,4 +1,5 @@
-import { Client, GatewayIntentBits } from "discord.js";
+import { Client, GatewayIntentBits, Partials } from "discord.js";
+
 
 export type DiscordClientConfig = {
   token: string;
@@ -27,6 +28,14 @@ export function createDiscordClientConfigFromEnv(): DiscordClientConfig {
 
 export function createDiscordClient(): Client {
   return new Client({
-    intents: [GatewayIntentBits.Guilds]
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessageReactions
+    ],
+    partials: [
+      Partials.Message,
+      Partials.Reaction,
+      Partials.User
+    ]
   });
 }

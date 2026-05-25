@@ -1,5 +1,6 @@
-import type { Article } from "@prisma/client";
+import type { Article, UserFavorite } from "@prisma/client";
 import { prisma } from "./prismaClient.js";
+
 import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
 import { normalizeUrl, normalizeTitle, sha256 } from "../processing/hashUtils.js";
 import { ARTICLE_STATUSES, type ArticleStatus } from "./articleStatus.js";
@@ -81,7 +82,9 @@ export async function saveArticle(
   score?: number,
   postedAt?: Date | null,
   status?: ArticleStatus,
-  statusReason?: string
+  statusReason?: string,
+  discordMessageId?: string,
+  discordChannelId?: string
 ): Promise<Article> {
   const urlHash = event.url ? sha256(normalizeUrl(event.url)) : null;
   const titleHash = sha256(normalizeTitle(event.title));
@@ -106,6 +109,8 @@ export async function saveArticle(
       status: articleStatus,
       statusReason: statusReason ?? null,
       rawJson: event.raw ? JSON.stringify(event.raw) : null,
+      discordMessageId: discordMessageId !== undefined ? discordMessageId : undefined,
+      discordChannelId: discordChannelId !== undefined ? discordChannelId : undefined,
     },
     create: {
       id: event.id,
@@ -121,6 +126,8 @@ export async function saveArticle(
       status: articleStatus,
       statusReason: statusReason ?? null,
       rawJson: event.raw ? JSON.stringify(event.raw) : null,
+      discordMessageId: discordMessageId ?? null,
+      discordChannelId: discordChannelId ?? null,
     },
   });
 }
@@ -209,4 +216,175 @@ export async function pruneOldArticles(olderThanDays = 7): Promise<number> {
   });
   return result.count;
 }
+
+/**
+ * Retrieves an article by its Discord message ID.
+ */
+export async function getArticleByMessageId(messageId: string): Promise<Article | null> {
+  return prisma.article.findFirst({
+    where: { discordMessageId: messageId },
+  });
+}
+
+/**
+ * Persists a user's favorited article record (upserts to ensure idempotency).
+ */
+export async function saveFavorite(params: {
+  userId: string;
+  articleId: string;
+  articleTopic: string;
+  channelId: string;
+  messageId: string;
+  instapaperStatus: string;
+}): Promise<UserFavorite> {
+  return prisma.userFavorite.upsert({
+    where: {
+      userId_articleId_articleTopic: {
+        userId: params.userId,
+        articleId: params.articleId,
+        articleTopic: params.articleTopic,
+      },
+    },
+    update: {
+      discordChannelId: params.channelId,
+      discordMessageId: params.messageId,
+      instapaperStatus: params.instapaperStatus,
+    },
+    create: {
+      userId: params.userId,
+      articleId: params.articleId,
+      articleTopic: params.articleTopic,
+      discordChannelId: params.channelId,
+      discordMessageId: params.messageId,
+      instapaperStatus: params.instapaperStatus,
+    },
+  });
+}
+
+/**
+ * Retrieves a user's favorited articles with optional filtering options.
+ */
+export async function getFavorites(
+  userId: string,
+  filters: {
+    topic?: string;
+    query?: string;
+    source?: string;
+    since?: string;
+    limit?: number;
+  }
+): Promise<Array<UserFavorite & { article: Article }>> {
+  const whereClause: any = {
+    userId,
+  };
+
+  if (filters.topic) {
+    whereClause.articleTopic = filters.topic;
+  }
+
+  const articleConditions: any = {};
+
+  if (filters.query) {
+    const queryLower = filters.query.toLowerCase();
+    articleConditions.OR = [
+      { title: { contains: queryLower } },
+      { source: { contains: queryLower } },
+      { url: { contains: queryLower } },
+    ];
+  }
+
+  if (filters.source) {
+    articleConditions.source = { contains: filters.source.toLowerCase() };
+  }
+
+  if (Object.keys(articleConditions).length > 0) {
+    whereClause.article = articleConditions;
+  }
+
+  if (filters.since) {
+    const now = new Date();
+    let cutoff: Date | null = null;
+
+    const relativeMatch = filters.since.match(/^(\d+)([dhm])$/);
+    if (relativeMatch) {
+      const amount = parseInt(relativeMatch[1], 10);
+      const unit = relativeMatch[2];
+      if (unit === "d") {
+        cutoff = new Date(now.getTime() - amount * 24 * 60 * 60 * 1000);
+      } else if (unit === "h") {
+        cutoff = new Date(now.getTime() - amount * 60 * 60 * 1000);
+      } else if (unit === "m") {
+        cutoff = new Date(now.getTime() - amount * 60 * 1000);
+      }
+    } else {
+      const parsedDate = new Date(filters.since);
+      if (!isNaN(parsedDate.getTime())) {
+        cutoff = parsedDate;
+      }
+    }
+
+    if (cutoff) {
+      whereClause.savedAt = { gte: cutoff };
+    }
+  }
+
+  return prisma.userFavorite.findMany({
+    where: whereClause,
+    include: {
+      article: true,
+    },
+    orderBy: {
+      savedAt: "desc",
+    },
+    take: filters.limit ?? 20,
+  }) as any;
+}
+
+/**
+ * Deletes a user's favorited article record (by composite unique key).
+ */
+export async function deleteFavorite(
+  userId: string,
+  articleId: string,
+  articleTopic: string
+): Promise<UserFavorite | null> {
+  try {
+    return await prisma.userFavorite.delete({
+      where: {
+        userId_articleId_articleTopic: {
+          userId,
+          articleId,
+          articleTopic,
+        },
+      },
+    });
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Deletes a user's favorited article record by unique ID (with user security check).
+ */
+export async function deleteFavoriteById(
+  userId: string,
+  favoriteId: string
+): Promise<any> {
+  try {
+    const favorite = await prisma.userFavorite.findFirst({
+      where: { id: favoriteId, userId },
+    });
+    if (!favorite) {
+      return null;
+    }
+    return await prisma.userFavorite.delete({
+      where: { id: favoriteId },
+      include: { article: true },
+    });
+  } catch (error) {
+    return null;
+  }
+}
+
+
 
