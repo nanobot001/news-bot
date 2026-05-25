@@ -20,17 +20,24 @@ import {
   handleStatsCommand,
   handleSearchCommand,
   handleTopicsCommand,
-  handleSourcesCommand
+  handleSourcesCommand,
+  handleFavoritesCommand,
+  handleUnfavoriteCommand
 } from "./bot/commands.js";
+import { getFavorites } from "./storage/articleRepo.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
 import { loadAppConfig } from "./config/loadConfig.js";
 import { startScheduler, runSinglePoll } from "./jobs/pollNews.js";
+import { registerReactionListener } from "./bot/reactionListener.js";
 
 async function main(): Promise<void> {
   const discordConfig = createDiscordClientConfigFromEnv();
   const appConfig = await loadAppConfig();
   const commandPayloads = getCommandRegistrationPayloads();
   const client = createDiscordClient();
+
+  registerReactionListener(client);
+
 
   client.on(Events.Error, (error) => {
     console.error(`[Discord Client] Error:`, error);
@@ -86,6 +93,33 @@ async function main(): Promise<void> {
   });
 
   client.on(Events.InteractionCreate, async (interaction) => {
+    // Handle Autocomplete Interactions
+    if (interaction.isAutocomplete()) {
+      if (interaction.commandName === "unfavorite") {
+        try {
+          const focusedValue = interaction.options.getFocused();
+          const favorites = await getFavorites(interaction.user.id, {
+            query: focusedValue || undefined,
+            limit: 25
+          });
+          const choices = favorites.map(fav => {
+            let name = `[${fav.articleTopic}] ${fav.article.title}`;
+            if (name.length > 100) {
+              name = name.slice(0, 97) + "...";
+            }
+            return { name, value: fav.id };
+          });
+          await interaction.respond(choices);
+        } catch (error) {
+          console.error("[Autocomplete] Error serving unfavorite choices:", error);
+          try {
+            await interaction.respond([]);
+          } catch (_) {}
+        }
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) {
       return;
     }
@@ -108,6 +142,10 @@ async function main(): Promise<void> {
       await handleTopicsCommand(interaction, appConfig);
     } else if (interaction.commandName === "sources") {
       await handleSourcesCommand(interaction, appConfig);
+    } else if (interaction.commandName === "favorites") {
+      await handleFavoritesCommand(interaction, appConfig);
+    } else if (interaction.commandName === "unfavorite") {
+      await handleUnfavoriteCommand(interaction, appConfig);
     }
   });
 

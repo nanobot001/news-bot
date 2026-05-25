@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Block 2-1 (Heart Reaction Favorites & Instapaper Sync)**: Added SQLite schema for `UserFavorite` and updated `Article` model with Discord message IDs. Implemented `/favorites` recall slash command with topic, query, source, and relative timeframe filters. Implemented optional Instapaper Simple API integration for syncing favorites, and registered Discord reaction listener to capture heart emojis on posted embeds. Added two-way favorite removal via reaction removal (un-hearting) and the `/unfavorite` slash command with real-time autocomplete suggestions. Added unit testing suite in `tests/favorites.test.ts` and expanded command coverage in `tests/bot.test.ts`. (2026-05-25)
+
 ## [0.1.0] - 2026-05-23
 
 ### Added

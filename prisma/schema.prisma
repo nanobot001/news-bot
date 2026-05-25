@@ -23,10 +23,32 @@ model Article {
   statusReason String?
   rawJson     String?
 
+  discordMessageId String?
+  discordChannelId String?
+  userFavorites UserFavorite[]
+
   @@id([id, topic])
   @@index([topic])
   @@index([urlHash])
   @@index([titleHash])
   @@index([postedAt])
   @@index([status])
+  @@index([discordMessageId])
 }
+
+model UserFavorite {
+  id               String   @id @default(uuid())
+  userId           String   // Discord User ID
+  articleId        String
+  articleTopic     String
+  article          Article  @relation(fields: [articleId, articleTopic], references: [id, topic], onDelete: Cascade)
+  discordChannelId String
+  discordMessageId String
+  savedAt          DateTime @default(now())
+  instapaperStatus String   // "SUCCESS", "FAILED", "SKIPPED"
+
+  @@unique([userId, articleId, articleTopic])
+  @@index([userId])
+  @@index([savedAt])
+}
+

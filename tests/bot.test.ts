@@ -24,6 +24,8 @@ import {
   handleSearchCommand,
   handleTopicsCommand,
   handleSourcesCommand,
+  handleFavoritesCommand,
+  handleUnfavoriteCommand,
   pingCommand,
   testfeedCommand,
   lastpostsCommand,
@@ -32,7 +34,9 @@ import {
   statsCommand,
   searchCommand,
   topicsCommand,
-  sourcesCommand
+  sourcesCommand,
+  favoritesCommand,
+  unfavoriteCommand
 } from "../src/bot/commands.js";
 import type { AppConfig } from "../src/config/loadConfig.js";
 
@@ -341,9 +345,11 @@ test("Slash Commands System", async (t) => {
     assert.equal(searchCommand.name, "search");
     assert.equal(topicsCommand.name, "topics");
     assert.equal(sourcesCommand.name, "sources");
+    assert.equal(favoritesCommand.name, "favorites");
+    assert.equal(unfavoriteCommand.name, "unfavorite");
 
     const payloads = getCommandRegistrationPayloads();
-    assert.equal(payloads.length, 9);
+    assert.equal(payloads.length, 11);
     assert.equal(payloads[0].name, "ping");
     assert.equal(payloads[1].name, "testfeed");
     assert.equal(payloads[2].name, "lastposts");
@@ -353,6 +359,8 @@ test("Slash Commands System", async (t) => {
     assert.equal(payloads[6].name, "search");
     assert.equal(payloads[7].name, "topics");
     assert.equal(payloads[8].name, "sources");
+    assert.equal(payloads[9].name, "favorites");
+    assert.equal(payloads[10].name, "unfavorite");
   });
 
   await t.test("handlePingCommand should reply with pong", async () => {
@@ -875,5 +883,137 @@ test("Slash Commands System", async (t) => {
     assert.match(replyContent, /Feed 1.*https:\/\/example.com\/feed1/);
     assert.match(replyContent, /Feed 2.*https:\/\/example.com\/feed2/);
     assert.match(replyContent, /trusted/);
+  });
+
+  await t.test("handleFavoritesCommand should list user's favorites", async () => {
+    await prisma.userFavorite.deleteMany({});
+    await prisma.article.deleteMany({});
+
+    const mockArticle = {
+      id: "art-fav-test-1",
+      type: "news.article",
+      topic: "anime",
+      title: "Anime Favorite Test Title",
+      url: "https://example.com/anime-fav",
+      sourceName: "Anime Source",
+    };
+    await saveArticle(mockArticle, 85, new Date(), "POSTED", undefined, "msg-fav-1", "chan-fav-1");
+
+    await prisma.userFavorite.create({
+      data: {
+        userId: "test-user-123",
+        articleId: "art-fav-test-1",
+        articleTopic: "anime",
+        discordChannelId: "chan-fav-1",
+        discordMessageId: "msg-fav-1",
+        instapaperStatus: "SUCCESS",
+        savedAt: new Date(),
+      }
+    });
+
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      user: { id: "test-user-123" },
+      options: {
+        getString: (name: string) => {
+          return null;
+        },
+        getInteger: (name: string) => {
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+        assert.equal(options?.ephemeral, true);
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      sources: { anime: [] }
+    };
+
+    await handleFavoritesCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /Anime Favorite Test Title/);
+    assert.match(replyContent, /Anime Source/);
+    assert.match(replyContent, /Instapaper/);
+  });
+
+  await t.test("handleFavoritesCommand should return empty message when no favorites exist", async () => {
+    await prisma.userFavorite.deleteMany({});
+    await prisma.article.deleteMany({});
+
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      user: { id: "test-user-123" },
+      options: {
+        getString: (name: string) => {
+          return null;
+        },
+        getInteger: (name: string) => {
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      sources: { anime: [] }
+    };
+
+    await handleFavoritesCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.match(replyContent, /You don't have any matching favorited articles yet/);
+  });
+
+  await t.test("handleFavoritesCommand should error on unknown topic", async () => {
+    let replied = false;
+    let replyContent = "";
+
+    const mockInteraction: any = {
+      user: { id: "test-user-123" },
+      options: {
+        getString: (name: string) => {
+          if (name === "topic") return "unknown-topic";
+          return null;
+        },
+        getInteger: (name: string) => {
+          return null;
+        }
+      },
+      reply: async (options: any) => {
+        replied = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      }
+    };
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      sources: { anime: [] }
+    };
+
+    await handleFavoritesCommand(mockInteraction, mockConfig);
+    assert.ok(replied);
+    assert.match(replyContent, /Unknown topic/);
   });
 });

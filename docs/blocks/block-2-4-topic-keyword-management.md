@@ -1,8 +1,8 @@
-# Block 2-4: Topic Keyword Inspection & Management
+# Block 2-4: Topic Keyword Inspection, Management & Refresh
 
 ## Goal
 
-Make topic keyword tuning possible from Discord so the operator can inspect, add, and remove topic keywords while the bot is live.
+Make topic keyword tuning possible from Discord so the operator can inspect, add, and remove topic keywords while the bot is live, then re-score recent articles after retuning a topic.
 
 ## Scope
 
@@ -25,6 +25,18 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
   - Persist keyword changes to `src/config/topics.json`.
   - Reload the in-memory app config after a successful write so changes take effect without restarting the bot.
   - Write updates safely with a read-modify-write flow that preserves valid JSON and avoids partial writes.
+- **Refresh After Keyword Retuning:**
+  - Extend the existing `/refresh` command with an optional `hours` parameter.
+  - Preserve current `/refresh` behavior when `hours` is omitted: fetch feeds now and process eligible new items normally.
+  - When `hours` is provided:
+    - Require `topic`.
+    - Use the current in-memory config after any keyword update/reload.
+    - Re-score recently ingested articles for that topic within the requested time window.
+    - Include already-posted articles in the summary and clearly label them as already posted.
+    - Never repost already-posted articles.
+    - Only attempt to post articles that were previously skipped/unposted and now meet the topic threshold.
+    - Cap the lookback window to a safe maximum such as 72 hours.
+  - Return a concise summary including checked, already posted, still skipped, newly eligible, and posted-now counts.
 - **Operational Logging:**
   - Log keyword additions/removals with topic, keyword, Discord user ID, and timestamp.
 
@@ -35,6 +47,7 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
 - Bulk keyword imports.
 - Web dashboard.
 - Multi-user approval workflows for config changes.
+- Reposting already-posted articles during refresh rescans.
 
 ## Acceptance Criteria
 
@@ -44,7 +57,11 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
 - Admin users can remove an existing keyword with `/keyword remove <topic> <keyword>` and it immediately stops affecting future scoring.
 - Duplicate additions and missing removals return clear messages without corrupting config.
 - Changes survive bot restarts because `topics.json` is updated.
-- Automated tests cover keyword normalization, duplicate handling, missing keyword removal, config persistence, and command authorization.
+- `/refresh topic:<topic> hours:<n>` re-scores recent ingested articles for that topic using the current keyword config.
+- `/refresh topic:<topic> hours:<n>` reports already-posted articles separately and does not repost them.
+- Previously skipped/unposted articles that now meet threshold are posted and recorded with updated status.
+- Omitting `hours` from `/refresh` keeps the existing live polling behavior unchanged.
+- Automated tests cover keyword normalization, duplicate handling, missing keyword removal, config persistence, command authorization, refresh rescore filtering, already-posted reporting, and unchanged live refresh behavior.
 
 ## Verification
 
@@ -52,6 +69,8 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
 - In a development Discord server, inspect keywords for one topic.
 - Add a test keyword, run `/keyword view <topic>`, and verify it appears.
 - Run `/testfeed <topic>` against an article containing the new keyword and verify the scoring reflects it.
+- Run `/refresh topic:<topic> hours:24` and verify recent skipped/unposted items are re-scored with the new keyword.
+- Verify already-posted articles are listed as already posted and are not posted again.
 - Remove the test keyword and verify it no longer appears after reload/restart.
 
 ## Status

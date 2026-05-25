@@ -5,7 +5,7 @@ import {
   type Client
 } from "discord.js";
 import { type AppConfig, reloadAppConfig } from "../config/loadConfig.js";
-import { getArticlesForTopic } from "../storage/articleRepo.js";
+import { getArticlesForTopic, getFavorites, deleteFavoriteById } from "../storage/articleRepo.js";
 import { pollNews } from "../jobs/pollNews.js";
 import { prisma } from "../storage/prismaClient.js";
 import { formatArticleStatus } from "../storage/articleStatus.js";
@@ -90,6 +90,45 @@ export const sourcesCommand = new SlashCommandBuilder()
       .setRequired(false)
   );
 
+export const favoritesCommand = new SlashCommandBuilder()
+  .setName("favorites")
+  .setDescription("Recall your personal favorited news articles.")
+  .addStringOption(option =>
+    option.setName("topic")
+      .setDescription("Filter by a specific topic (optional)")
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName("query")
+      .setDescription("Search by title, source, or URL text (optional)")
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName("source")
+      .setDescription("Filter by news source name (optional)")
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName("since")
+      .setDescription("Filter window (e.g. 7d, 30d, or YYYY-MM-DD) (optional)")
+      .setRequired(false)
+  )
+  .addIntegerOption(option =>
+    option.setName("limit")
+      .setDescription("Maximum number of results to return (optional)")
+      .setRequired(false)
+  );
+
+export const unfavoriteCommand = new SlashCommandBuilder()
+  .setName("unfavorite")
+  .setDescription("Remove an article from your personal favorites.")
+  .addStringOption(option =>
+    option.setName("article")
+      .setDescription("The favorited article to remove (supports autocomplete search)")
+      .setRequired(true)
+      .setAutocomplete(true)
+  );
+
 export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
   return [
     pingCommand.toJSON(),
@@ -100,7 +139,9 @@ export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicatio
     statsCommand.toJSON(),
     searchCommand.toJSON(),
     topicsCommand.toJSON(),
-    sourcesCommand.toJSON()
+    sourcesCommand.toJSON(),
+    favoritesCommand.toJSON(),
+    unfavoriteCommand.toJSON()
   ];
 }
 
@@ -510,3 +551,126 @@ export async function handleSourcesCommand(
     });
   }
 }
+
+export async function handleFavoritesCommand(
+  interaction: ChatInputCommandInteraction,
+  appConfig: AppConfig
+): Promise<void> {
+  const topic = interaction.options.getString("topic");
+  const query = interaction.options.getString("query");
+  const source = interaction.options.getString("source");
+  const since = interaction.options.getString("since");
+  const limitInput = interaction.options.getInteger("limit");
+
+  const limit = limitInput ? Math.min(Math.max(limitInput, 1), 50) : 20;
+
+  if (topic && !appConfig.topics[topic]) {
+    const configured = Object.keys(appConfig.topics).join(", ");
+    await interaction.reply({
+      content: `Unknown topic: "${topic}". Configured topics are: ${configured}`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    const favorites = await getFavorites(interaction.user.id, {
+      topic: topic ?? undefined,
+      query: query ?? undefined,
+      source: source ?? undefined,
+      since: since ?? undefined,
+      limit
+    });
+
+    if (favorites.length === 0) {
+      await interaction.editReply({
+        content: "You don't have any matching favorited articles yet."
+      });
+      return;
+    }
+
+    let responseText = `**Your Favorited Articles** (showing ${favorites.length} items):\n\n`;
+    for (let i = 0; i < favorites.length; i++) {
+      const fav = favorites[i];
+      const art = fav.article;
+      const savedTimeStr = `<t:${Math.floor(fav.savedAt.getTime() / 1000)}:R>`;
+      const link = art.url ? `[${art.title}](${art.url})` : art.title;
+      const instapaperStr = fav.instapaperStatus === "SUCCESS"
+        ? " 📑(Instapaper)"
+        : fav.instapaperStatus === "FAILED"
+        ? " ⚠️(Instapaper Failed)"
+        : "";
+
+      const line = `${i + 1}. [${art.topic}] **${art.source}**: ${link}${instapaperStr} - Saved ${savedTimeStr}\n`;
+
+      if (responseText.length + line.length > 1950) {
+        responseText += `\n*...and more items (truncated).*`;
+        break;
+      }
+      responseText += line;
+    }
+
+    await interaction.editReply({ content: responseText });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    await interaction.editReply({
+      content: `Failed to retrieve favorites: ${msg}`
+    });
+  }
+}
+
+export async function handleUnfavoriteCommand(
+  interaction: ChatInputCommandInteraction,
+  appConfig: AppConfig
+): Promise<void> {
+  const articleInput = interaction.options.getString("article", true);
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    // 1. Try to delete directly by favorite ID (UUID string)
+    let deleted = await deleteFavoriteById(interaction.user.id, articleInput);
+
+    // 2. Fallback: If not deleted (e.g. they typed a search term), search and delete the unique match
+    if (!deleted) {
+      const matches = await getFavorites(interaction.user.id, {
+        query: articleInput,
+        limit: 5
+      });
+
+      if (matches.length === 1) {
+        deleted = await deleteFavoriteById(interaction.user.id, matches[0].id);
+      } else if (matches.length > 1) {
+        const matchNames = matches.map((m) => `• "${m.article.title}"`).join("\n");
+        await interaction.editReply({
+          content: `Multiple favorites matched your search "${articleInput}". Please be more specific:\n${matchNames}`
+        });
+        return;
+      } else {
+        await interaction.editReply({
+          content: `No favorited article matched "${articleInput}".`
+        });
+        return;
+      }
+    }
+
+    if (deleted) {
+      const title = deleted.article.title;
+      await interaction.editReply({
+        content: `Successfully removed favorite: "${title}"`
+      });
+    } else {
+      await interaction.editReply({
+        content: `Failed to remove the favorite article.`
+      });
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    await interaction.editReply({
+      content: `Error removing favorite: ${msg}`
+    });
+  }
+}
+
