@@ -2,6 +2,20 @@
 
 ## 2026-05-24
 
+Current state:
+- Updated `docs/project-charter.md` and `docs/architecture/README.md` to clarify the future reusable bot/agent harness direction.
+- The roadmap now explicitly names agent-shaped boundaries: instructions, allowed tools, memory scopes, permissions, audit logs, and bot personality/tone config.
+- The MVP boundary remains unchanged: current implementation is still a deterministic news bot, with LLM and multi-agent harness behavior reserved for later phases.
+
+Next step:
+- Continue Phase 2 implementation from `docs/blocks/block-2-1-heart-reaction-favorites.md`, unless the roadmap docs need another pass first.
+
+Do-not-forget checks:
+- Keep future harness work config-driven and permission-scoped.
+- Do not let optional LLM behavior replace deterministic dedupe, scoring, or baseline posting rules.
+
+## 2026-05-24
+
 ### Current State
 - **Topic-Specific Emojis:** Fully implemented support for per-topic custom emojis defined in `topics.json`. The custom emojis are prefixed directly in posted article embed titles.
 - **Slash Commands Length Limit Fix:** Fixed the `/topics` slash command output in `src/bot/commands.ts` to truncate keywords and blocked terms list output to a maximum of 10 items per topic, avoiding Discord's 2,000-character payload limits.
