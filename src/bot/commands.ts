@@ -686,6 +686,15 @@ export async function handleTopicsCommand(
       }
       responseText += `  * Keywords (${settings.keywords.length}): ${keywordsStr || "*None*"}\n`;
 
+      if (settings.locationKeywords && settings.locationKeywords.length > 0) {
+        const maxLocationsToShow = 10;
+        let locationsStr = settings.locationKeywords.slice(0, maxLocationsToShow).map(l => `\`${l}\``).join(", ");
+        if (settings.locationKeywords.length > maxLocationsToShow) {
+          locationsStr += `, ... and ${settings.locationKeywords.length - maxLocationsToShow} more`;
+        }
+        responseText += `  * Locations (${settings.locationKeywords.length}): ${locationsStr}\n`;
+      }
+
       if (settings.blockedTerms && settings.blockedTerms.length > 0) {
         const maxBlockedToShow = 10;
         let blockedStr = settings.blockedTerms.slice(0, maxBlockedToShow).map(b => `\`${b}\``).join(", ");
@@ -1043,11 +1052,16 @@ export async function handleTopicCommand(
       ? sources.map(s => `  • **${s.name}** (${s.trusted ? "trusted" : "untrusted"}) - ${s.url}`).join("\n")
       : "  *(no sources)*";
 
+    const locationsStr = config.locationKeywords && config.locationKeywords.length > 0
+      ? `- **Locations (${config.locationKeywords.length}):** ${config.locationKeywords.join(", ")}\n`
+      : "";
+
     const content = `### Topic Lane: **${topic}** (${status})\n` +
       `- **Channel:** <#${config.channelId}>\n` +
       `- **Post Threshold:** ${config.postThreshold}\n` +
       `- **Emoji Prefix:** ${emojiPrefix}\n` +
       `- **Keywords (${config.keywords.length}):** ${config.keywords.join(", ") || "none"}\n` +
+      locationsStr +
       `- **Blocked Terms (${config.blockedTerms.length}):** ${config.blockedTerms.join(", ") || "none"}\n` +
       `**Sources:**\n${sourceList}`;
 
@@ -1097,6 +1111,7 @@ export async function handleTopicCommand(
         postThreshold: threshold,
         emoji,
         keywords: [],
+        locationKeywords: [],
         blockedTerms: [],
         disabled: false
       };

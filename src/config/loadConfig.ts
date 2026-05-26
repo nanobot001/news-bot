@@ -3,6 +3,7 @@ import { readFile, writeFile, rename } from "node:fs/promises";
 export type TopicConfig = {
   channelId: string;
   keywords: string[];
+  locationKeywords?: string[];
   blockedTerms: string[];
   postThreshold: number;
   emoji?: string;
@@ -86,6 +87,7 @@ function validateTopics(value: unknown): Record<string, TopicConfig> {
     topics[topicName] = {
       channelId: topic.channelId,
       keywords: validateStringArray(topic.keywords, `topics.${topicName}.keywords`),
+      locationKeywords: topic.locationKeywords !== undefined ? validateStringArray(topic.locationKeywords, `topics.${topicName}.locationKeywords`) : undefined,
       blockedTerms: validateStringArray(topic.blockedTerms, `topics.${topicName}.blockedTerms`),
       postThreshold: topic.postThreshold,
       emoji: topic.emoji as string | undefined,

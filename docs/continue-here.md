@@ -1,5 +1,22 @@
 # Continue Here
 
+## 2026-05-26 (Location-Aware Keyword Scoring & Command Control Complete)
+
+Current state:
+- Completed Block 2-3 (Bot Manager Authorization & Curation Audit Logs) and Block 2-4 (Topic & Source Management Commands).
+- Implemented **Location-Aware Keyword Scoring Separation**: Separated core dining keywords from regional/neighborhood locations in `topics.json` under a new `"locationKeywords"` field for the `toronto-eats` topic.
+- Updated `scoreArticle` engine to only award points for location keywords if the article also matches a core topic keyword or comes from a trusted source. Location-only matches on untrusted feeds are ignored (returning a score of 0) to avoid spamming the channel with crime, politics, or sports from those municipalities.
+- Added comprehensive unit tests in `tests/scoring.test.ts` for location-aware rules.
+- Rebuilt the app and verified all 119 tests pass successfully.
+- Restarted the `news-bot` service in PM2 (ID 11).
+
+Next step:
+- Start Block 2-5 (Discord-Side Topic Keyword Management) to implement dynamic addition/removal of core/location keywords and rescoring via Discord commands.
+
+Do-not-forget checks:
+- Keep the `locationKeywords` option optional in the `TopicConfig` validation to maintain backwards compatibility with other topics.
+- Ensure the upcoming `/keyword` slash commands support managing both `keywords` and `locationKeywords`.
+
 ## 2026-05-26 (Reaction Email Forwarding Complete)
 
 Current state:

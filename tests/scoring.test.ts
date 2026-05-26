@@ -295,5 +295,42 @@ test("Scoring and Filtering Logic Suite", async (t) => {
     }
   });
 
+  await t.test("should handle location-aware keywords context rules", () => {
+    // Case 1: Location match alone (no core keywords, not trusted source)
+    const resultAlone = scoreArticle({
+      event: { ...dummyEvent, title: "Something happened in Brampton", summary: "" },
+      keywords: ["restaurant", "food"],
+      locationKeywords: ["Brampton"],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    assert.equal(resultAlone.score, 0);
+    assert.ok(resultAlone.reasons.some((r) => r.includes("ignored due to lack of core topic context")));
+
+    // Case 2: Location match + core keyword (untrusted source)
+    const resultWithKeyword = scoreArticle({
+      event: { ...dummyEvent, title: "New restaurant in Brampton", summary: "" },
+      keywords: ["restaurant", "food"],
+      locationKeywords: ["Brampton"],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    assert.equal(resultWithKeyword.score, 40);
+    assert.ok(resultWithKeyword.reasons.some((r) => r.includes("Title matched keyword")));
+    assert.ok(resultWithKeyword.reasons.some((r) => r.includes("Title matched location keyword")));
+
+    // Case 3: Location match (no core keyword) + trusted source
+    const resultWithTrusted = scoreArticle({
+      event: { ...dummyEvent, title: "Something happened in Brampton", summary: "" },
+      keywords: ["restaurant", "food"],
+      locationKeywords: ["Brampton"],
+      blockedTerms: [],
+      trustedSource: true,
+    });
+    assert.equal(resultWithTrusted.score, 35);
+    assert.ok(resultWithTrusted.reasons.some((r) => r.includes("Trusted source bonus")));
+    assert.ok(resultWithTrusted.reasons.some((r) => r.includes("Title matched location keyword")));
+  });
+
 });
 

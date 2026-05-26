@@ -110,6 +110,7 @@ export async function pollNews(
           const scoringResult = scoreArticle({
             event,
             keywords: topicConfig.keywords,
+            locationKeywords: topicConfig.locationKeywords,
             blockedTerms: topicConfig.blockedTerms,
             trustedSource: source.trusted,
           });
