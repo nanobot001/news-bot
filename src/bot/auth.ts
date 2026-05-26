@@ -1,4 +1,4 @@
-import type { ChatInputCommandInteraction } from "discord.js";
+import type { Interaction } from "discord.js";
 import { PermissionsBitField } from "discord.js";
 
 /**
@@ -9,7 +9,7 @@ import { PermissionsBitField } from "discord.js";
  * 2. Member possesses a role present in the comma-separated `BOT_MANAGER_ROLE_IDS` env var.
  * 3. Fallback: If both user and role list are empty, check if the user has the ManageGuild permission.
  */
-export function isBotManager(interaction: ChatInputCommandInteraction): boolean {
+export function isBotManager(interaction: Interaction): boolean {
   const managerUserIdsStr = process.env.BOT_MANAGER_USER_IDS || "";
   const managerRoleIdsStr = process.env.BOT_MANAGER_ROLE_IDS || "";
 

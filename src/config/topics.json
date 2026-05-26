@@ -21,7 +21,8 @@
       "rogers centre",
       "spring training",
       "homerun",
-      "trade"
+      "trade",
+      "pinango"
     ],
     "blockedTerms": [
       "sponsored",
@@ -210,7 +211,8 @@
       "lebron",
       "curry",
       "jokic",
-      "doncic"
+      "doncic",
+      "luka"
     ],
     "blockedTerms": [
       "sponsored",
@@ -314,7 +316,6 @@
   },
   "toronto-eats": {
     "channelId": "1507578466982170686",
-    "postThreshold": 30,
     "keywords": [
       "restaurant",
       "restaurants",
@@ -390,7 +391,8 @@
       "raptors",
       "maple leafs"
     ],
-    "disabled": false,
-    "emoji": "<:torontofoodie3:1508674647711940702>"
+    "postThreshold": 30,
+    "emoji": "<:torontofoodie3:1508674647711940702>",
+    "disabled": false
   }
 }

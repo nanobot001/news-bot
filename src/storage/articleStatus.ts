@@ -4,12 +4,16 @@ export const ARTICLE_STATUSES = {
   SKIPPED_OLD: "SKIPPED_OLD",
   SKIPPED_LOW_SCORE: "SKIPPED_LOW_SCORE",
   SKIPPED_FILTERED: "SKIPPED_FILTERED",
+  REMOVED: "REMOVED",
 } as const;
 
 export type ArticleStatus = typeof ARTICLE_STATUSES[keyof typeof ARTICLE_STATUSES];
 
 export function formatArticleStatus(status: string | null, postedAt: Date | null, reason: string | null): string {
-  const effectiveStatus = postedAt ? ARTICLE_STATUSES.POSTED : status;
+  let effectiveStatus = status;
+  if (status !== "REMOVED" && postedAt) {
+    effectiveStatus = ARTICLE_STATUSES.POSTED;
+  }
 
   switch (effectiveStatus) {
     case ARTICLE_STATUSES.POSTED:
@@ -22,6 +26,8 @@ export function formatArticleStatus(status: string | null, postedAt: Date | null
       return reason ? `Skipped: filtered (${reason})` : "Skipped: filtered";
     case ARTICLE_STATUSES.INDEXED:
       return reason ? `Indexed (${reason})` : "Indexed";
+    case ARTICLE_STATUSES.REMOVED:
+      return reason ? `Removed (${reason})` : "Removed";
     default:
       return reason ? `${effectiveStatus} (${reason})` : String(effectiveStatus);
   }

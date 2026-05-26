@@ -26,7 +26,9 @@ import {
   handleAuditCommand,
   handleTopicCommand,
   handleSourceCommand,
-  handleKeywordCommand
+  handleKeywordCommand,
+  handleRemoveArticleCommand,
+  handleRemoveArticleModal
 } from "./bot/commands.js";
 import { getFavorites } from "./storage/articleRepo.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
@@ -155,6 +157,22 @@ async function main(): Promise<void> {
             await interaction.respond([]);
           } catch (_) {}
         }
+      }
+      return;
+    }
+
+    // Handle Context Menu Interactions
+    if (interaction.isMessageContextMenuCommand()) {
+      if (interaction.commandName === "Remove Article") {
+        await handleRemoveArticleCommand(interaction);
+      }
+      return;
+    }
+
+    // Handle Modal Submit Interactions
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith("remove-article-modal_")) {
+        await handleRemoveArticleModal(interaction, client);
       }
       return;
     }

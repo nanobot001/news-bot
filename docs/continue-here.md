@@ -1,5 +1,23 @@
 # Continue Here
 
+## 2026-05-26 (Manual Article Removal & Feedback Loop Complete)
+
+Current state:
+- Completed Block 2-10 (Manual Article Removal & Feedback Loop).
+- Implemented the `"Remove Article"` Message Context Menu command, allowing Bot Managers to retract mistaken bot posts.
+- Created the `"remove-article-modal_<messageId>"` interactive modal prompting operator for removal reason.
+- Updated database status of the article to `"REMOVED"` and logged the reason in `statusReason`.
+- Wrote a CurationLog entry with status `"REMOVED"`, preserving original keyword matches and matching scores alongside the removal reason.
+- Enhanced the `/stats` command to track and display manual removal statistics per topic.
+- Updated the `/audit` command to support filtering by `"REMOVED"`, printing diagnostic operator reasons, matched keywords, and a new "Culprit Keywords Summary" of contributing factors to aid operator keyword refinement.
+- Created a new comprehensive unit test suite in `tests/articleRemoval.test.ts` covering the whole interactive flow, database status updates, and audit keyword diagnostics. All 136 tests pass successfully.
+
+Next step:
+- Start Block 2-6 (Advanced Trust Levels & Fine-Grained Rules) or other curation logic improvements like topic throttling or similarity clustering.
+
+Do-not-forget checks:
+- Keep track of operator-removed article matches in audit logs to automatically prioritize adjustments to topic keyword scoring or sources.
+
 ## 2026-05-26 (Topic Keyword Management & Rescoring Complete)
 
 Current state:

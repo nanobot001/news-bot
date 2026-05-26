@@ -3,7 +3,15 @@ import {
   SlashCommandBuilder,
   AttachmentBuilder,
   type RESTPostAPIChatInputApplicationCommandsJSONBody,
-  type Client
+  type Client,
+  ContextMenuCommandBuilder,
+  ApplicationCommandType,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  type MessageContextMenuCommandInteraction,
+  type ModalSubmitInteraction
 } from "discord.js";
 import { type AppConfig, reloadAppConfig, saveTopicsConfig, saveSourcesConfig } from "../config/loadConfig.js";
 import { getArticlesForTopic, getFavorites, deleteFavoriteById, getCurationLogs, saveArticle } from "../storage/articleRepo.js";
@@ -15,6 +23,10 @@ import { scoreArticle } from "../processing/scoreArticle.js";
 import { filterArticle } from "../processing/filterArticle.js";
 import { formatArticleEmbed, postArticleToChannel } from "./postEmbed.js";
 import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
+
+export const removeArticleCommand = new ContextMenuCommandBuilder()
+  .setName("Remove Article")
+  .setType(ApplicationCommandType.Message);
 
 export const pingCommand = new SlashCommandBuilder()
   .setName("ping")
@@ -173,7 +185,8 @@ export const auditCommand = new SlashCommandBuilder()
         { name: "POSTED", value: "POSTED" },
         { name: "SKIPPED_THRESHOLD", value: "SKIPPED_THRESHOLD" },
         { name: "SKIPPED_BLOCKED", value: "SKIPPED_BLOCKED" },
-        { name: "DEFERRED_COOLDOWN", value: "DEFERRED_COOLDOWN" }
+        { name: "DEFERRED_COOLDOWN", value: "DEFERRED_COOLDOWN" },
+        { name: "REMOVED", value: "REMOVED" }
       )
   );
 
@@ -391,7 +404,7 @@ export const keywordCommand = new SlashCommandBuilder()
       )
   );
 
-export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
+export function getCommandRegistrationPayloads(): any[] {
   return [
     pingCommand.toJSON(),
     testfeedCommand.toJSON(),
@@ -407,7 +420,8 @@ export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicatio
     auditCommand.toJSON(),
     topicCommand.toJSON(),
     sourceCommand.toJSON(),
-    keywordCommand.toJSON()
+    keywordCommand.toJSON(),
+    removeArticleCommand.toJSON()
   ];
 }
 
@@ -758,9 +772,12 @@ export async function handleStatsCommand(
 
     const totalCount = await prisma.article.count();
     const postedCount = await prisma.article.count({
-      where: { postedAt: { not: null } }
+      where: { status: "POSTED" }
     });
-    const skippedCount = totalCount - postedCount;
+    const removedCount = await prisma.article.count({
+      where: { status: "REMOVED" }
+    });
+    const skippedCount = totalCount - postedCount - removedCount;
 
     const topicStats = await prisma.article.groupBy({
       by: ["topic"],
@@ -771,7 +788,15 @@ export async function handleStatsCommand(
 
     const topicPostedStats = await prisma.article.groupBy({
       by: ["topic"],
-      where: { postedAt: { not: null } },
+      where: { status: "POSTED" },
+      _count: {
+        _all: true
+      }
+    });
+
+    const topicRemovedStats = await prisma.article.groupBy({
+      by: ["topic"],
+      where: { status: "REMOVED" },
       _count: {
         _all: true
       }
@@ -780,6 +805,7 @@ export async function handleStatsCommand(
     let responseText = `**Operational Statistics**\n`;
     responseText += `- Total Indexed Articles: **${totalCount}**\n`;
     responseText += `- Total Posted to Discord: **${postedCount}**\n`;
+    responseText += `- Total Manually Removed: **${removedCount}**\n`;
     responseText += `- Total Skipped/Deduplicated: **${skippedCount}**\n\n`;
 
     responseText += `**Topic Indexing Breakdown:**\n`;
@@ -787,8 +813,9 @@ export async function handleStatsCommand(
     for (const t of configuredTopics) {
       const totalForTopic = topicStats.find((s) => s.topic === t)?._count._all ?? 0;
       const postedForTopic = topicPostedStats.find((s) => s.topic === t)?._count._all ?? 0;
-      const skippedForTopic = totalForTopic - postedForTopic;
-      responseText += `- **${t}**: Total: ${totalForTopic} | Posted: ${postedForTopic} | Skipped: ${skippedForTopic}\n`;
+      const removedForTopic = topicRemovedStats.find((s) => s.topic === t)?._count._all ?? 0;
+      const skippedForTopic = totalForTopic - postedForTopic - removedForTopic;
+      responseText += `- **${t}**: Total: ${totalForTopic} | Posted: ${postedForTopic} | Removed: ${removedForTopic} | Skipped: ${skippedForTopic}\n`;
     }
 
     await interaction.editReply({ content: responseText });
@@ -1090,6 +1117,38 @@ export async function handleUnfavoriteCommand(
   }
 }
 
+function extractKeywordsFromBreakdown(breakdownList: string[]): {
+  keywords: string[];
+  locations: string[];
+  blocked: string[];
+} {
+  const keywords: string[] = [];
+  const locations: string[] = [];
+  const blocked: string[] = [];
+
+  for (const item of breakdownList) {
+    const kwMatch = item.match(/(?:Title|Summary) matched keyword (.+?) \(\+\d+\)/);
+    if (kwMatch) {
+      const words = kwMatch[1].split(",").map(w => w.replace(/"/g, "").trim());
+      keywords.push(...words);
+    }
+
+    const locMatch = item.match(/(?:Title|Summary) matched location keyword (.+?) \(\+\d+\)/);
+    if (locMatch) {
+      const words = locMatch[1].split(",").map(w => w.replace(/"/g, "").trim());
+      locations.push(...words);
+    }
+
+    const blockedMatch = item.match(/Blocked term matched (.+?) \(-\d+\)/);
+    if (blockedMatch) {
+      const words = blockedMatch[1].split(",").map(w => w.replace(/"/g, "").trim());
+      blocked.push(...words);
+    }
+  }
+
+  return { keywords, locations, blocked };
+}
+
 export async function handleAuditCommand(
   interaction: ChatInputCommandInteraction,
   appConfig: AppConfig
@@ -1155,7 +1214,10 @@ export async function handleAuditCommand(
         breakdownList = [log.breakdown];
       }
 
-      const statusPrefix = log.status === "POSTED" ? "✅ [POSTED]" : `❌ [${log.status}]`;
+      let statusPrefix = log.status === "POSTED" ? "✅ [POSTED]" : `❌ [${log.status}]`;
+      if (log.status === "REMOVED") {
+        statusPrefix = "🗑️ [REMOVED]";
+      }
       let line = `${i + 1}. ${statusPrefix} ${link} ${scoreStr} - Source: *${log.source}* - Evaluated ${timeStr}\n`;
       for (const reason of breakdownList) {
         line += `   • ${reason}\n`;
@@ -1174,6 +1236,59 @@ export async function handleAuditCommand(
       fileText += `-----------------------------------------\n\n`;
 
       outputText += line;
+    }
+
+    if (status === "REMOVED" || logs.some(l => l.status === "REMOVED")) {
+      const allRemovedLogs = await getCurationLogs({
+        topic,
+        limit: 100,
+        status: "REMOVED"
+      });
+
+      const counts: Record<string, number> = {};
+      const locationCounts: Record<string, number> = {};
+      const blockedCounts: Record<string, number> = {};
+
+      for (const log of allRemovedLogs) {
+        let breakdownList: string[] = [];
+        try {
+          breakdownList = JSON.parse(log.breakdown);
+        } catch (_) {
+          breakdownList = [log.breakdown];
+        }
+
+        const cleanedBreakdown = breakdownList.map(r => r.startsWith("Original: ") ? r.replace(/^Original: /, "") : r);
+        const { keywords, locations, blocked } = extractKeywordsFromBreakdown(cleanedBreakdown);
+        for (const kw of keywords) counts[kw] = (counts[kw] || 0) + 1;
+        for (const loc of locations) locationCounts[loc] = (locationCounts[loc] || 0) + 1;
+        for (const bl of blocked) blockedCounts[bl] = (blockedCounts[bl] || 0) + 1;
+      }
+
+      const topKws = Object.entries(counts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([kw, count]) => `\`${kw}\` (${count}x)`)
+        .join(", ");
+
+      const topLocs = Object.entries(locationCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([loc, count]) => `\`${loc}\` (${count}x)`)
+        .join(", ");
+
+      const diagnosticSummary = `⚠️ **Culprit Keywords Summary (Last 100 removals)**:\n` +
+        `• **Core Keywords:** ${topKws || "None"}\n` +
+        `• **Location Keywords:** ${topLocs || "None"}\n\n`;
+
+      outputText = diagnosticSummary + outputText;
+
+      const fileDiagnostic = `=========================================\n` +
+        `CULPRIT KEYWORDS SUMMARY (Last 100 removals):\n` +
+        `  Core Keywords: ${Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,c])=>`${k} (${c}x)`).join(", ") || "None"}\n` +
+        `  Location Keywords: ${Object.entries(locationCounts).sort((a,b)=>b[1]-a[1]).map(([k,c])=>`${k} (${c}x)`).join(", ") || "None"}\n` +
+        `=========================================\n\n`;
+
+      fileText = fileDiagnostic + fileText;
     }
 
     if (outputText.length > 1950 || limit > 15) {
@@ -1780,6 +1895,181 @@ export async function handleKeywordCommand(
     return;
   }
 }
+
+export async function handleRemoveArticleCommand(
+  interaction: MessageContextMenuCommandInteraction
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const messageId = interaction.targetMessage.id;
+
+  // Verify the article exists in the database
+  const article = await prisma.article.findFirst({
+    where: { discordMessageId: messageId }
+  });
+
+  if (!article) {
+    await interaction.reply({
+      content: "Error: This message is not associated with an ingested article in the database.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Create the modal
+  const modal = new ModalBuilder()
+    .setCustomId(`remove-article-modal_${messageId}`)
+    .setTitle("Remove Article");
+
+  const reasonInput = new TextInputBuilder()
+    .setCustomId("reason")
+    .setLabel("Reason for removal")
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setPlaceholder("e.g. Off-topic, spam, duplication");
+
+  const actionRow = new ActionRowBuilder<TextInputBuilder>().addComponents(reasonInput);
+  modal.addComponents(actionRow);
+
+  await interaction.showModal(modal);
+}
+
+export async function handleRemoveArticleModal(
+  interaction: ModalSubmitInteraction,
+  client: Client
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to perform this action.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const customId = interaction.customId;
+  const messageId = customId.split("_")[1];
+  const reason = interaction.fields.getTextInputValue("reason");
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    // Find the article
+    const article = await prisma.article.findFirst({
+      where: { discordMessageId: messageId }
+    });
+
+    if (!article) {
+      await interaction.editReply({
+        content: "Error: Article not found in database."
+      });
+      return;
+    }
+
+    // Attempt to delete the message from Discord
+    if (article.discordChannelId && article.discordMessageId) {
+      try {
+        const channel = await client.channels.fetch(article.discordChannelId);
+        if (channel?.isTextBased()) {
+          const msg = await channel.messages.fetch(article.discordMessageId);
+          if (msg) {
+            await msg.delete();
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not delete message from Discord:`, err);
+      }
+    }
+
+    // Update database status of the article
+    await prisma.article.update({
+      where: {
+        id_topic: {
+          id: article.id,
+          topic: article.topic
+        }
+      },
+      data: {
+        status: "REMOVED",
+        statusReason: reason
+      }
+    });
+
+    // Get the original curation log (status = "POSTED") to extract breakdown
+    const originalLog = await prisma.curationLog.findFirst({
+      where: {
+        topic: article.topic,
+        url: article.url,
+        status: "POSTED"
+      }
+    });
+
+    let originalBreakdown: string[] = [];
+    if (originalLog) {
+      try {
+        originalBreakdown = JSON.parse(originalLog.breakdown);
+      } catch (_) {
+        originalBreakdown = [originalLog.breakdown];
+      }
+    }
+
+    // Write a CurationLog entry for status "REMOVED"
+    const breakdown = [
+      `Removed by operator. Reason: ${reason}`,
+      `Original score: ${article.score}`,
+      ...originalBreakdown.map(r => `Original: ${r}`)
+    ];
+
+    await prisma.curationLog.create({
+      data: {
+        title: article.title,
+        url: article.url,
+        source: article.source,
+        topic: article.topic,
+        status: "REMOVED",
+        score: article.score ?? 0,
+        breakdown: JSON.stringify(breakdown)
+      }
+    });
+
+    // Provide a diagnostic adjustment tip
+    const matchedKws = originalBreakdown
+      .filter(r => r.includes("matched keyword") || r.includes("matched location keyword") || r.includes("bonus"))
+      .map(r => {
+        return r;
+      });
+
+    let confirmationMsg = `🗑️ **Article Removed.**\n`;
+    confirmationMsg += `• **Title:** ${article.title}\n`;
+    confirmationMsg += `• **Reason:** ${reason}\n`;
+    if (matchedKws.length > 0) {
+      confirmationMsg += `• **Original Matches:**\n`;
+      for (const match of matchedKws) {
+        confirmationMsg += `  └─ ${match}\n`;
+      }
+      confirmationMsg += `*Tip: Consider removing or refining these matching keywords/sources using \`/keyword remove\` or \`/source remove\`.*`;
+    } else {
+      confirmationMsg += `• *No original keywords/source bonuses recorded.*`;
+    }
+
+    console.log(`[Manual Removal Audit] Removed article "${article.title}" from topic "${article.topic}". Reason: "${reason}". Original breakdown: ${JSON.stringify(originalBreakdown)}`);
+
+    await interaction.editReply({
+      content: confirmationMsg
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    await interaction.editReply({
+      content: `Failed to remove article: ${msg}`
+    });
+  }
+}
+
 
 
 
