@@ -292,6 +292,11 @@
       "name": "Glen & Friends Cooking YouTube",
       "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsU15yvILBmnHPeAf4SFVaQ",
       "trusted": false
+    },
+    {
+      "name": "InstaNoodls YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCs0blMflhhRf9X0I_jtNvCg",
+      "trusted": false
     }
   ]
 }
