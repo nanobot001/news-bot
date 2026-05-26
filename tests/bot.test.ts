@@ -349,7 +349,7 @@ test("Slash Commands System", async (t) => {
     assert.equal(unfavoriteCommand.name, "unfavorite");
 
      const payloads = getCommandRegistrationPayloads();
-    assert.equal(payloads.length, 16);
+    assert.equal(payloads.length, 18);
     assert.equal(payloads[0].name, "ping");
     assert.equal(payloads[1].name, "testfeed");
     assert.equal(payloads[2].name, "lastposts");
@@ -366,6 +366,8 @@ test("Slash Commands System", async (t) => {
     assert.equal(payloads[13].name, "source");
     assert.equal(payloads[14].name, "keyword");
     assert.equal(payloads[15].name, "Remove Article");
+    assert.equal(payloads[16].name, "Merge to Thread");
+    assert.equal(payloads[17].name, "Split from Thread");
   });
 
   await t.test("handlePingCommand should reply with pong", async () => {

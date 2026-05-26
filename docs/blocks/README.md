@@ -22,7 +22,6 @@ Implement one block at a time. The roadmap in `docs/project-charter.md` is autho
 4. `block-2-4-topic-source-management.md`: Bot manager `/topic` and `/source` commands for file-backed topic and RSS source configuration.
 5. `block-2-5-topic-keyword-management.md`: Unified `/keyword` command for full keyword inspection plus bot-manager add/remove operations that persist to config.
 6. `block-2-6-advanced-trust-rules.md`: Multi-tier source trust levels, priority weighting, and source-level custom scoring multipliers.
-7. `block-2-7-topic-throttling.md`: Topic-specific pacing limits, cooldown checks, and database-backed deferred article queues.
-8. `block-2-8-similarity-clustering.md`: In-memory Jaccard similarity grouping on title tokens and appending related coverage links to existing embeds.
-9. `block-2-9-daily-digests.md`: Digest eligibility thresholds, accumulation storage, and scheduled daily/weekly summary publishers.
-10. `block-2-10-manual-article-removal.md`: Message context menu commands, modals, article retraction, and culprit keyword diagnostic audit logs.
+7. `block-2-7-similarity-clustering.md`: In-memory Jaccard similarity grouping on title tokens and appending related coverage links to existing embeds.
+8. `block-2-8-daily-digests.md`: Digest eligibility thresholds, accumulation storage, and scheduled daily/weekly summary publishers.
+9. `block-2-10-manual-article-removal.md`: Message context menu commands, modals, article retraction, and culprit keyword diagnostic audit logs. (Implemented)

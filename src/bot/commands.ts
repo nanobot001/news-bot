@@ -23,10 +23,19 @@ import { scoreArticle } from "../processing/scoreArticle.js";
 import { filterArticle } from "../processing/filterArticle.js";
 import { formatArticleEmbed, postArticleToChannel } from "./postEmbed.js";
 import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
+import { cleanThreadTitle } from "../processing/similarity.js";
 
-export const removeArticleCommand = new ContextMenuCommandBuilder()
-  .setName("Remove Article")
+export const removeArticleCommand = new ContextMenuCommandBuilder().setName("Remove Article").setType(ApplicationCommandType.Message);
+
+export const mergeToThreadCommand = new ContextMenuCommandBuilder()
+  .setName("Merge to Thread")
   .setType(ApplicationCommandType.Message);
+
+export const splitFromThreadCommand = new ContextMenuCommandBuilder()
+  .setName("Split from Thread")
+  .setType(ApplicationCommandType.Message);
+
+
 
 export const pingCommand = new SlashCommandBuilder()
   .setName("ping")
@@ -423,7 +432,9 @@ export function getCommandRegistrationPayloads(): any[] {
     topicCommand.toJSON(),
     sourceCommand.toJSON(),
     keywordCommand.toJSON(),
-    removeArticleCommand.toJSON()
+    removeArticleCommand.toJSON(),
+    mergeToThreadCommand.toJSON(),
+    splitFromThreadCommand.toJSON()
   ];
 }
 
@@ -2110,6 +2121,370 @@ export async function handleRemoveArticleModal(
     const msg = error instanceof Error ? error.message : String(error);
     await interaction.editReply({
       content: `Failed to remove article: ${msg}`
+    });
+  }
+}
+
+/**
+ * Returns a space-separated string of mentions for bot managers (users & roles) from environment variables.
+ */
+function getManagerMentions(): string {
+  const managerUserIdsStr = process.env.BOT_MANAGER_USER_IDS || "";
+  const managerRoleIdsStr = process.env.BOT_MANAGER_ROLE_IDS || "";
+
+  const userIds = managerUserIdsStr.split(",").map(id => id.trim()).filter(id => id.length > 0);
+  const roleIds = managerRoleIdsStr.split(",").map(id => id.trim()).filter(id => id.length > 0);
+
+  const mentions: string[] = [];
+  for (const id of roleIds) {
+    mentions.push(`<@&${id}>`);
+  }
+  for (const id of userIds) {
+    mentions.push(`<@${id}>`);
+  }
+
+  return mentions.length > 0 ? mentions.join(" ") : "";
+}
+
+export async function handleMergeToThreadCommand(
+  interaction: MessageContextMenuCommandInteraction
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const messageId = interaction.targetMessage.id;
+
+  // Verify the target child article exists in the database
+  const article = await prisma.article.findFirst({
+    where: { discordMessageId: messageId }
+  });
+
+  if (!article) {
+    await interaction.reply({
+      content: "Error: This message is not associated with an ingested article in the database.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (article.storyThreadId) {
+    await interaction.reply({
+      content: "Error: This article is already an active thread anchor. You cannot merge a thread anchor into another thread.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Create the modal
+  const modal = new ModalBuilder()
+    .setCustomId(`merge-to-thread-modal_${messageId}`)
+    .setTitle("Merge to Story Thread");
+
+  const anchorInput = new TextInputBuilder()
+    .setCustomId("anchorUrlOrId")
+    .setLabel("Anchor Message Link or ID")
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setPlaceholder("Paste the Discord link or ID of the parent article message");
+
+  const actionRow = new ActionRowBuilder<TextInputBuilder>().addComponents(anchorInput);
+  modal.addComponents(actionRow);
+
+  await interaction.showModal(modal);
+}
+
+export async function handleMergeToThreadModal(
+  interaction: ModalSubmitInteraction,
+  client: Client,
+  appConfig: AppConfig
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to perform this action.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const customId = interaction.customId;
+  const childMessageId = customId.split("_")[1];
+  const anchorUrlOrId = interaction.fields.getTextInputValue("anchorUrlOrId");
+
+  // Extract message ID
+  const anchorMatch = anchorUrlOrId.match(/\/channels\/\d+\/\d+\/(\d+)/);
+  const anchorMessageId = anchorMatch ? anchorMatch[1] : anchorUrlOrId.trim();
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    // Find the child article
+    const childArticle = await prisma.article.findFirst({
+      where: { discordMessageId: childMessageId }
+    });
+
+    if (!childArticle) {
+      await interaction.editReply({
+        content: "Error: Child article not found in database."
+      });
+      return;
+    }
+
+    // Find the anchor article
+    const anchorArticle = await prisma.article.findFirst({
+      where: { discordMessageId: anchorMessageId }
+    });
+
+    if (!anchorArticle) {
+      await interaction.editReply({
+        content: `Error: Anchor article not found in database for message ID: ${anchorMessageId}`
+      });
+      return;
+    }
+
+    if (anchorArticle.anchorId) {
+      await interaction.editReply({
+        content: "Error: The selected anchor is already a child of another thread. You can only merge into a parent anchor."
+      });
+      return;
+    }
+
+    if (childArticle.id === anchorArticle.id && childArticle.topic === anchorArticle.topic) {
+      await interaction.editReply({
+        content: "Error: Cannot merge an article into itself."
+      });
+      return;
+    }
+
+    // Fetch anchor channel/message
+    if (!anchorArticle.discordChannelId || !anchorArticle.discordMessageId) {
+      await interaction.editReply({
+        content: "Error: Anchor article is missing Discord channel or message metadata."
+      });
+      return;
+    }
+
+    const anchorChannel = await client.channels.fetch(anchorArticle.discordChannelId);
+    if (!anchorChannel?.isTextBased()) {
+      await interaction.editReply({
+        content: "Error: Anchor Discord channel is not accessible or not text-based."
+      });
+      return;
+    }
+
+    const anchorMsg = await anchorChannel.messages.fetch(anchorArticle.discordMessageId);
+    if (!anchorMsg) {
+      await interaction.editReply({
+        content: "Error: Anchor Discord message could not be fetched."
+      });
+      return;
+    }
+
+    let threadId = anchorArticle.storyThreadId;
+    let thread: any;
+
+    if (!threadId) {
+      // Create thread on anchor message
+      const threadTitle = cleanThreadTitle(anchorArticle.title);
+      thread = await anchorMsg.startThread({
+        name: threadTitle,
+        autoArchiveDuration: 1440 // 24 hours
+      });
+      threadId = thread.id;
+
+      // Update anchor in DB
+      await prisma.article.update({
+        where: { id_topic: { id: anchorArticle.id, topic: anchorArticle.topic } },
+        data: { storyThreadId: threadId }
+      });
+
+      // Ping managers in the new thread
+      const mentions = getManagerMentions();
+      if (mentions) {
+        await (thread as any).send({
+          content: `🧵 New story thread created. Alert: ${mentions}`
+        });
+      }
+    } else {
+      thread = await client.channels.fetch(threadId);
+    }
+
+    if (!thread) {
+      await interaction.editReply({
+        content: `Error: Failed to fetch or create thread (ID: ${threadId}).`
+      });
+      return;
+    }
+
+    // Format embed for child article
+    const topicConfig = appConfig.topics[childArticle.topic];
+    const embed = formatArticleEmbed({
+      event: {
+        id: childArticle.id,
+        type: "news.article",
+        title: childArticle.title,
+        url: childArticle.url ?? "",
+        sourceName: childArticle.source,
+        topic: childArticle.topic,
+        publishedAt: childArticle.publishedAt?.toISOString(),
+      },
+      score: childArticle.score ?? 0,
+      emoji: topicConfig?.emoji,
+    });
+
+    // Delete child message from main channel
+    if (childArticle.discordChannelId && childArticle.discordMessageId) {
+      const childChannel = await client.channels.fetch(childArticle.discordChannelId);
+      if (childChannel?.isTextBased()) {
+        const childMsg = await childChannel.messages.fetch(childArticle.discordMessageId).catch(() => null);
+        if (childMsg) {
+          await childMsg.delete().catch(err => console.warn("Failed to delete child message:", err));
+        }
+      }
+    }
+
+    // Post child embed inside thread
+    const threadMsg = await (thread as any).send({ embeds: [embed] });
+
+    // Update child article in DB
+    await prisma.article.update({
+      where: { id_topic: { id: childArticle.id, topic: childArticle.topic } },
+      data: {
+        anchorId: anchorArticle.id,
+        anchorTopic: anchorArticle.topic,
+        discordChannelId: thread.id,
+        discordMessageId: threadMsg.id,
+        status: ARTICLE_STATUSES.RELATED_COVERAGE,
+        statusReason: "Manually merged by operator"
+      }
+    });
+
+    // Update anchor's lastStoryAddedAt
+    await prisma.article.update({
+      where: { id_topic: { id: anchorArticle.id, topic: anchorArticle.topic } },
+      data: { lastStoryAddedAt: new Date() }
+    });
+
+    await interaction.editReply({
+      content: `✅ Successfully merged "${childArticle.title}" into thread under anchor "${anchorArticle.title}".`
+    });
+
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Error merging to thread:", error);
+    await interaction.editReply({
+      content: `Failed to merge to thread: ${msg}`
+    });
+  }
+}
+
+export async function handleSplitFromThreadCommand(
+  interaction: MessageContextMenuCommandInteraction,
+  client: Client,
+  appConfig: AppConfig
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const messageId = interaction.targetMessage.id;
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    // Verify child article exists in the database
+    const childArticle = await prisma.article.findFirst({
+      where: { discordMessageId: messageId }
+    });
+
+    if (!childArticle) {
+      await interaction.editReply({
+        content: "Error: This message is not associated with an ingested article in the database."
+      });
+      return;
+    }
+
+    if (!childArticle.anchorId) {
+      await interaction.editReply({
+        content: "Error: This article is not a child inside a thread."
+      });
+      return;
+    }
+
+    // Delete message inside thread
+    if (childArticle.discordChannelId && childArticle.discordMessageId) {
+      const threadChannel = await client.channels.fetch(childArticle.discordChannelId);
+      if (threadChannel?.isTextBased()) {
+        const threadMsg = await threadChannel.messages.fetch(childArticle.discordMessageId).catch(() => null);
+        if (threadMsg) {
+          await threadMsg.delete().catch(err => console.warn("Failed to delete thread message during split:", err));
+        }
+      }
+    }
+
+    // Repost article in main channel
+    const topicConfig = appConfig.topics[childArticle.topic];
+    if (!topicConfig?.channelId) {
+      await interaction.editReply({
+        content: `Error: Topic "${childArticle.topic}" config has no destination channelId.`
+      });
+      return;
+    }
+
+    const mainChannel = await client.channels.fetch(topicConfig.channelId);
+    if (!mainChannel?.isTextBased()) {
+      await interaction.editReply({
+        content: `Error: Main destination channel is not text-based.`
+      });
+      return;
+    }
+
+    const embed = formatArticleEmbed({
+      event: {
+        id: childArticle.id,
+        type: "news.article",
+        title: childArticle.title,
+        url: childArticle.url ?? "",
+        sourceName: childArticle.source,
+        topic: childArticle.topic,
+        publishedAt: childArticle.publishedAt?.toISOString(),
+      },
+      score: childArticle.score ?? 0,
+      emoji: topicConfig.emoji
+    });
+
+    const newMsg = await (mainChannel as any).send({ embeds: [embed] });
+
+    // Update child article in database
+    await prisma.article.update({
+      where: { id_topic: { id: childArticle.id, topic: childArticle.topic } },
+      data: {
+        anchorId: null,
+        anchorTopic: null,
+        discordChannelId: topicConfig.channelId,
+        discordMessageId: newMsg.id,
+        status: ARTICLE_STATUSES.POSTED,
+        statusReason: "Manually split from thread by operator"
+      }
+    });
+
+    await interaction.editReply({
+      content: `✅ Successfully split "${childArticle.title}" out of thread and reposted in main channel.`
+    });
+
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Error splitting from thread:", error);
+    await interaction.editReply({
+      content: `Failed to split from thread: ${msg}`
     });
   }
 }

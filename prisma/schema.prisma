@@ -28,6 +28,13 @@ model Article {
   userFavorites UserFavorite[]
   emailForwards EmailForward[]
 
+  storyThreadId    String?
+  lastStoryAddedAt DateTime?
+  anchorId         String?
+  anchorTopic      String?
+  anchor           Article?   @relation("StoryCluster", fields: [anchorId, anchorTopic], references: [id, topic], onDelete: SetNull)
+  clusterMembers   Article[]  @relation("StoryCluster")
+
   @@id([id, topic])
   @@index([topic])
   @@index([urlHash])
@@ -35,6 +42,7 @@ model Article {
   @@index([postedAt])
   @@index([status])
   @@index([discordMessageId])
+  @@index([anchorId, anchorTopic])
 }
 
 model UserFavorite {

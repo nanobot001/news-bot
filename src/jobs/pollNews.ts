@@ -6,9 +6,10 @@ import { normalizeRssItem } from "../normalization/normalizeRssItem.js";
 import { checkDuplicate } from "../processing/dedupe.js";
 import { scoreArticle } from "../processing/scoreArticle.js";
 import { filterArticle } from "../processing/filterArticle.js";
-import { saveArticle, pruneOldArticles, saveCurationLog } from "../storage/articleRepo.js";
+import { saveArticle, pruneOldArticles, saveCurationLog, getActiveAnchors, setStoryThreadId, updateLastStoryAddedAt, getInactiveStoryAnchors, closeStoryAnchor } from "../storage/articleRepo.js";
 import { ARTICLE_STATUSES, type ArticleStatus } from "../storage/articleStatus.js";
 import { formatArticleEmbed, postArticleToChannel } from "../bot/postEmbed.js";
+import { calculateJaccardSimilarity, cleanThreadTitle } from "../processing/similarity.js";
 
 export type PollTopicCounts = {
   checked: number;
@@ -151,6 +152,86 @@ export async function pollNews(
               console.log(`[Dry Run] Would post article: "${event.title}" to channel: ${topicConfig.channelId}`);
               counts[topic].skipped++;
             } else {
+              // 1. Fetch active story anchors for the topic
+              const activeAnchors = await getActiveAnchors(topic);
+              let bestAnchor: any = null;
+              let bestScore = 0;
+              const similarityThreshold = process.env.SIMILARITY_THRESHOLD ? parseFloat(process.env.SIMILARITY_THRESHOLD) : 0.25;
+
+              for (const anchor of activeAnchors) {
+                const jaccardScore = calculateJaccardSimilarity(event.title, anchor.title);
+                if (jaccardScore > bestScore) {
+                  bestScore = jaccardScore;
+                  bestAnchor = anchor;
+                }
+              }
+
+              // 2. If similar story anchor found, merge/post into its thread
+              if (bestAnchor && bestScore >= similarityThreshold) {
+                let threadId = bestAnchor.storyThreadId;
+
+                // 2a. Lazy create thread on parent message if it doesn't exist
+                if (!threadId && bestAnchor.discordChannelId && bestAnchor.discordMessageId) {
+                  try {
+                    const anchorChannel = await client.channels.fetch(bestAnchor.discordChannelId);
+                    if (anchorChannel?.isTextBased()) {
+                      const anchorMsg = await anchorChannel.messages.fetch(bestAnchor.discordMessageId);
+                      if (anchorMsg) {
+                        const threadTitle = cleanThreadTitle(bestAnchor.title);
+                        const thread = await anchorMsg.startThread({
+                          name: threadTitle,
+                          autoArchiveDuration: 1440
+                        });
+                        threadId = thread.id;
+                        await setStoryThreadId(bestAnchor.id, bestAnchor.topic, thread.id);
+
+                        // Ping managers in the new thread
+                        const mentions = getManagerMentions();
+                        if (mentions) {
+                          await (thread as any).send({
+                            content: `🧵 New story thread created. Alert: ${mentions}`
+                          });
+                        }
+                      }
+                    }
+                  } catch (threadErr) {
+                    console.error("Failed to lazy create thread on anchor message:", threadErr);
+                  }
+                }
+
+                // 2b. Post child embed inside thread
+                if (threadId) {
+                  try {
+                    const threadChannel = await client.channels.fetch(threadId);
+                    if (threadChannel?.isTextBased()) {
+                      const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji });
+                      const threadMsg = await (threadChannel as any).send({ embeds: [embed] });
+
+                      // Save as RELATED_COVERAGE child
+                      await saveArticle(
+                        event,
+                        scoringResult.score,
+                        new Date(),
+                        ARTICLE_STATUSES.RELATED_COVERAGE,
+                        `Clustered automatically via similarity check (Jaccard: ${bestScore.toFixed(2)})`,
+                        threadMsg?.id,
+                        threadId,
+                        bestAnchor.id,
+                        bestAnchor.topic
+                      );
+
+                      // Update anchor's lastStoryAddedAt
+                      await updateLastStoryAddedAt(bestAnchor.id, bestAnchor.topic, new Date());
+                      counts[topic].posted++;
+                      continue;
+                    }
+                  } catch (postErr) {
+                    console.error("Failed to post child article inside thread, falling back to standalone:", postErr);
+                  }
+                }
+              }
+
+              // 3. Fallback or standard post: post as standalone article
               const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji });
               const message = await postArticleToChannel(client, topicConfig.channelId, embed);
               await saveArticle(
@@ -244,6 +325,42 @@ export async function runSinglePoll(client: Client, config: AppConfig): Promise<
   return counts;
 }
 
+/**
+ * Scans for open threads that have been inactive for more than 24 hours.
+ * Archives and locks them in Discord and updates their database status to CLOSED.
+ */
+export async function archiveInactiveThreads(client: Client): Promise<void> {
+  try {
+    const inactiveAnchors = await getInactiveStoryAnchors();
+    if (inactiveAnchors.length === 0) {
+      return;
+    }
+
+    console.log(`[Thread Cleanup] Found ${inactiveAnchors.length} inactive story threads to close.`);
+
+    for (const anchor of inactiveAnchors) {
+      if (!anchor.storyThreadId) continue;
+
+      try {
+        const threadChannel = await client.channels.fetch(anchor.storyThreadId);
+        if (threadChannel?.isThread()) {
+          // Lock and archive the thread
+          await threadChannel.setArchived(true, "Story inactive for > 24 hours");
+          await threadChannel.setLocked(true, "Story inactive for > 24 hours");
+          console.log(`[Thread Cleanup] Archived & locked thread: "${threadChannel.name}" (${threadChannel.id})`);
+        }
+      } catch (discordErr) {
+        console.warn(`[Thread Cleanup] Could not archive thread ${anchor.storyThreadId} in Discord (might already be deleted/archived):`, discordErr);
+      }
+
+      // Mark the story anchor as CLOSED in database
+      await closeStoryAnchor(anchor.id, anchor.topic);
+    }
+  } catch (err) {
+    console.error(`[Thread Cleanup] Error during inactive threads archiving:`, err);
+  }
+}
+
 let isPolling = false;
 
 /**
@@ -267,6 +384,7 @@ export function startScheduler(client: Client, config: AppConfig): cron.Schedule
     isPolling = true;
     try {
       await runSinglePoll(client, config);
+      await archiveInactiveThreads(client);
     } catch (err) {
       console.error(
         `[News Poll] Critical error in polling scheduler run: ${err instanceof Error ? err.message : String(err)}`
@@ -275,4 +393,25 @@ export function startScheduler(client: Client, config: AppConfig): cron.Schedule
       isPolling = false;
     }
   });
+}
+
+/**
+ * Returns a space-separated string of mentions for bot managers (users & roles) from environment variables.
+ */
+function getManagerMentions(): string {
+  const managerUserIdsStr = process.env.BOT_MANAGER_USER_IDS || "";
+  const managerRoleIdsStr = process.env.BOT_MANAGER_ROLE_IDS || "";
+
+  const userIds = managerUserIdsStr.split(",").map(id => id.trim()).filter(id => id.length > 0);
+  const roleIds = managerRoleIdsStr.split(",").map(id => id.trim()).filter(id => id.length > 0);
+
+  const mentions: string[] = [];
+  for (const id of roleIds) {
+    mentions.push(`<@&${id}>`);
+  }
+  for (const id of userIds) {
+    mentions.push(`<@${id}>`);
+  }
+
+  return mentions.length > 0 ? mentions.join(" ") : "";
 }

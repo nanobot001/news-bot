@@ -28,7 +28,10 @@ import {
   handleSourceCommand,
   handleKeywordCommand,
   handleRemoveArticleCommand,
-  handleRemoveArticleModal
+  handleRemoveArticleModal,
+  handleMergeToThreadCommand,
+  handleMergeToThreadModal,
+  handleSplitFromThreadCommand
 } from "./bot/commands.js";
 import { getFavorites } from "./storage/articleRepo.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
@@ -169,6 +172,10 @@ async function main(): Promise<void> {
     if (interaction.isMessageContextMenuCommand()) {
       if (interaction.commandName === "Remove Article") {
         await handleRemoveArticleCommand(interaction);
+      } else if (interaction.commandName === "Merge to Thread") {
+        await handleMergeToThreadCommand(interaction);
+      } else if (interaction.commandName === "Split from Thread") {
+        await handleSplitFromThreadCommand(interaction, client, appConfig);
       }
       return;
     }
@@ -177,6 +184,8 @@ async function main(): Promise<void> {
     if (interaction.isModalSubmit()) {
       if (interaction.customId.startsWith("remove-article-modal_")) {
         await handleRemoveArticleModal(interaction, client);
+      } else if (interaction.customId.startsWith("merge-to-thread-modal_")) {
+        await handleMergeToThreadModal(interaction, client, appConfig);
       }
       return;
     }
