@@ -247,5 +247,51 @@
       "trusted": false
     }
   ],
-  "toronto-eats": []
+  "toronto-eats": [
+    {
+      "name": "Toronto Food Blog",
+      "url": "https://torontofoodblog.com/feed/",
+      "trusted": false
+    },
+    {
+      "name": "View the Vibe",
+      "url": "https://viewthevibe.com/feed/",
+      "trusted": false
+    },
+    {
+      "name": "Toronto Cafe Blog",
+      "url": "https://torontocafeandfood.blogspot.com/feeds/posts/default?alt=rss",
+      "trusted": false
+    },
+    {
+      "name": "Daily Hive Toronto",
+      "url": "https://dailyhive.com/feed/toronto",
+      "trusted": false
+    },
+    {
+      "name": "Reddit FoodToronto",
+      "url": "https://www.reddit.com/r/FoodToronto/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Insauga",
+      "url": "https://www.insauga.com/feed/",
+      "trusted": false
+    },
+    {
+      "name": "CBC Toronto",
+      "url": "https://rss.cbc.ca/lineup/canada-toronto.xml",
+      "trusted": false
+    },
+    {
+      "name": "Matty Matheson YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCpqH8-BBNTsluhcOzFKWLuw",
+      "trusted": false
+    },
+    {
+      "name": "Glen & Friends Cooking YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsU15yvILBmnHPeAf4SFVaQ",
+      "trusted": false
+    }
+  ]
 }
