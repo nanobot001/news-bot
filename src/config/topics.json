@@ -90,7 +90,8 @@
       "pick'em",
       "pick-em",
       "dfs",
-      "ats"
+      "ats",
+      "live"
     ],
     "postThreshold": 20,
     "emoji": "<:jays:1508144467230724217>"
@@ -212,7 +213,13 @@
       "curry",
       "jokic",
       "doncic",
-      "luka"
+      "luka",
+      "cavaliers",
+      "knicks",
+      "brunson",
+      "cavs",
+      "harden",
+      "kd, durant"
     ],
     "blockedTerms": [
       "sponsored",
@@ -280,7 +287,8 @@
       "pick'em",
       "pick-em",
       "dfs",
-      "ats"
+      "ats",
+      "live"
     ],
     "postThreshold": 20,
     "emoji": "<:nba:1508144469835255951>"

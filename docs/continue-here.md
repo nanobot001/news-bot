@@ -1,5 +1,19 @@
 # Continue Here
 
+## 2026-05-26 (Negative Keyword Management Complete)
+
+Current state:
+- Completed the addendum to Block 2-5 (Topic Keyword Management & Rescoring) to support blocked terms (negative keywords).
+- Updated the `/keyword` command's `add` and `remove` subcommands with a `"Negative"` type option to support blocked terms.
+- Implemented logic in `handleKeywordCommand` to persist negative keywords to `topics.json` under `blockedTerms` and ensure duplicate checks prevent entering positive or negative keywords multiple times.
+- Updated autocomplete in `src/index.ts` to suggest existing `blockedTerms` when the command type is `"negative"`.
+- Added new tests in `tests/keywordManagement.test.ts` verifying view, add, and remove operations for negative keywords.
+- Modified the JSON loader in `src/config/loadConfig.ts` to automatically strip UTF-8 BOM if present on Windows.
+- Verified all 139 tests pass successfully.
+
+Next step:
+- Start Block 2-6 (Advanced Trust Levels & Fine-Grained Rules) to implement priority source weightings and multipliers.
+
 ## 2026-05-26 (Manual Article Removal & Feedback Loop Complete)
 
 Current state:
@@ -8,9 +22,10 @@ Current state:
 - Created the `"remove-article-modal_<messageId>"` interactive modal prompting operator for removal reason.
 - Updated database status of the article to `"REMOVED"` and logged the reason in `statusReason`.
 - Wrote a CurationLog entry with status `"REMOVED"`, preserving original keyword matches and matching scores alongside the removal reason.
+- Tightened removal execution so SQLite status and audit logs are updated only after Discord message deletion succeeds; deletion failures now leave the article unchanged and report the failure to the operator.
 - Enhanced the `/stats` command to track and display manual removal statistics per topic.
 - Updated the `/audit` command to support filtering by `"REMOVED"`, printing diagnostic operator reasons, matched keywords, and a new "Culprit Keywords Summary" of contributing factors to aid operator keyword refinement.
-- Created a new comprehensive unit test suite in `tests/articleRemoval.test.ts` covering the whole interactive flow, database status updates, and audit keyword diagnostics. All 136 tests pass successfully.
+- Created a new comprehensive unit test suite in `tests/articleRemoval.test.ts` covering the whole interactive flow, database status updates, deletion-failure safety, and audit keyword diagnostics. All 139 tests pass successfully.
 
 Next step:
 - Start Block 2-6 (Advanced Trust Levels & Fine-Grained Rules) or other curation logic improvements like topic throttling or similarity clustering.

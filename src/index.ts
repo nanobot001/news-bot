@@ -138,7 +138,11 @@ async function main(): Promise<void> {
             const type = interaction.options.getString("type") || "standard";
             const topicConfig = appConfig.topics[topic];
             if (topicConfig) {
-              const keywords = type === "standard" ? (topicConfig.keywords || []) : (topicConfig.locationKeywords || []);
+              const keywords = type === "standard" 
+                ? (topicConfig.keywords || []) 
+                : (type === "location" 
+                  ? (topicConfig.locationKeywords || []) 
+                  : (topicConfig.blockedTerms || []));
               const focusedValue = focusedOption.value.toLowerCase();
               const choices = keywords
                 .filter(k => k.toLowerCase().includes(focusedValue))

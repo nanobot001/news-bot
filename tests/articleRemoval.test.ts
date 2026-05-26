@@ -225,6 +225,81 @@ test("Manual Article Removal Flow", async (t) => {
     assert.match(replyPayload.content, /Title matched keyword "deals" \(\+20\)/);
   });
 
+  await t.test("handleRemoveArticleModal - does not mark removed if Discord deletion fails", async () => {
+    await prisma.article.create({
+      data: {
+        id: "art-delete-fail",
+        topic: "tech",
+        title: "Delete failure article",
+        url: "https://example.com/delete-fail",
+        source: "TechCrunch",
+        score: 70,
+        discordChannelId: "channel-1",
+        discordMessageId: "msg-delete-fail",
+        status: "POSTED"
+      }
+    });
+
+    let replyPayload: any = null;
+
+    const mockClient: any = {
+      channels: {
+        fetch: async (_id: string) => {
+          return {
+            isTextBased: () => true,
+            messages: {
+              fetch: async (_msgId: string) => {
+                return {
+                  delete: async () => {
+                    throw new Error("Missing Permissions");
+                  }
+                };
+              }
+            }
+          };
+        }
+      }
+    };
+
+    const mockInteraction: any = {
+      user: { id: "111" },
+      customId: "remove-article-modal_msg-delete-fail",
+      fields: {
+        getTextInputValue: (name: string) => {
+          if (name === "reason") return "Should not be persisted";
+          return "";
+        }
+      },
+      deferReply: async (_opts: any) => {},
+      editReply: async (payload: any) => {
+        replyPayload = payload;
+      }
+    };
+
+    await handleRemoveArticleModal(mockInteraction, mockClient);
+
+    const article = await prisma.article.findUnique({
+      where: {
+        id_topic: {
+          id: "art-delete-fail",
+          topic: "tech"
+        }
+      }
+    });
+    assert.equal(article?.status, "POSTED");
+    assert.equal(article?.statusReason, null);
+
+    const removedLogs = await prisma.curationLog.findMany({
+      where: {
+        topic: "tech",
+        url: "https://example.com/delete-fail",
+        status: "REMOVED"
+      }
+    });
+    assert.equal(removedLogs.length, 0);
+    assert.match(replyPayload.content, /Database status was not changed/);
+  });
+
   await t.test("handleAuditCommand - should display Culprit Keywords summary", async () => {
     let deferred = false;
     let replyPayload: any = null;

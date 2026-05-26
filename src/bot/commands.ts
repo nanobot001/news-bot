@@ -370,11 +370,12 @@ export const keywordCommand = new SlashCommandBuilder()
       )
       .addStringOption(option =>
         option.setName("type")
-          .setDescription("Standard or Location keyword (default: standard)")
+          .setDescription("Standard, Location, or Negative keyword (default: standard)")
           .setRequired(false)
           .addChoices(
             { name: "Standard", value: "standard" },
-            { name: "Location", value: "location" }
+            { name: "Location", value: "location" },
+            { name: "Negative", value: "negative" }
           )
       )
   )
@@ -395,11 +396,12 @@ export const keywordCommand = new SlashCommandBuilder()
       )
       .addStringOption(option =>
         option.setName("type")
-          .setDescription("Standard or Location keyword (default: standard)")
+          .setDescription("Standard, Location, or Negative keyword (default: standard)")
           .setRequired(false)
           .addChoices(
             { name: "Standard", value: "standard" },
-            { name: "Location", value: "location" }
+            { name: "Location", value: "location" },
+            { name: "Negative", value: "negative" }
           )
       )
   );
@@ -1731,16 +1733,19 @@ export async function handleKeywordCommand(
   if (subcommand === "view") {
     const keywords = topicConfig.keywords || [];
     const locationKeywords = topicConfig.locationKeywords || [];
+    const blockedTerms = topicConfig.blockedTerms || [];
 
     let responseText = `### Keywords for Topic Lane: **${topic}**\n`;
     
     let standardList = keywords.map(k => `\`${k}\``).join(", ") || "*None*";
     let locationList = locationKeywords.map(k => `\`${k}\``).join(", ") || "*None*";
+    let negativeList = blockedTerms.map(k => `\`${k}\``).join(", ") || "*None*";
 
     let line1 = `- **Standard Keywords (${keywords.length}):** ${standardList}\n`;
     let line2 = `- **Location Keywords (${locationKeywords.length}):** ${locationList}\n`;
+    let line3 = `- **Negative Keywords (${blockedTerms.length}):** ${negativeList}\n`;
 
-    if (responseText.length + line1.length + line2.length > 1950) {
+    if (responseText.length + line1.length + line2.length + line3.length > 1950) {
       await interaction.reply({ content: `Keywords list for **${topic}** is too long. Chunking response...`, ephemeral: true });
       
       let standardChunks: string[] = [];
@@ -1776,9 +1781,27 @@ export async function handleKeywordCommand(
           await interaction.followUp({ content: chunk, ephemeral: true });
         }
       }
+
+      if (blockedTerms.length > 0) {
+        let negativeChunks: string[] = [];
+        let curChunk = `**Negative Keywords for ${topic} (${blockedTerms.length}):**\n`;
+        for (const k of blockedTerms) {
+          const item = `\`${k}\`, `;
+          if (curChunk.length + item.length > 1900) {
+            negativeChunks.push(curChunk);
+            curChunk = ``;
+          }
+          curChunk += item;
+        }
+        if (curChunk) negativeChunks.push(curChunk);
+
+        for (const chunk of negativeChunks) {
+          await interaction.followUp({ content: chunk, ephemeral: true });
+        }
+      }
     } else {
       await interaction.reply({
-        content: responseText + line1 + line2,
+        content: responseText + line1 + line2 + line3,
         ephemeral: true
       });
     }
@@ -1809,9 +1832,12 @@ export async function handleKeywordCommand(
   if (subcommand === "add") {
     const standardExists = topicConfig.keywords.includes(keyword);
     const locationExists = (topicConfig.locationKeywords || []).includes(keyword);
+    const negativeExists = (topicConfig.blockedTerms || []).includes(keyword);
 
-    if (standardExists || locationExists) {
-      const typeLabel = standardExists ? "standard" : "location";
+    if (standardExists || locationExists || negativeExists) {
+      let typeLabel = "standard";
+      if (locationExists) typeLabel = "location";
+      if (negativeExists) typeLabel = "negative";
       await interaction.reply({
         content: `❌ **Error:** The keyword \`${keyword}\` already exists as a ${typeLabel} keyword for topic **${topic}**.`,
         ephemeral: true
@@ -1827,8 +1853,10 @@ export async function handleKeywordCommand(
 
       if (type === "standard") {
         currentConfig.keywords = [...currentConfig.keywords, keyword];
-      } else {
+      } else if (type === "location") {
         currentConfig.locationKeywords = [...(currentConfig.locationKeywords || []), keyword];
+      } else {
+        currentConfig.blockedTerms = [...(currentConfig.blockedTerms || []), keyword];
       }
 
       updatedTopics[topic] = currentConfig;
@@ -1853,8 +1881,10 @@ export async function handleKeywordCommand(
     let exists = false;
     if (type === "standard") {
       exists = topicConfig.keywords.includes(keyword);
-    } else {
+    } else if (type === "location") {
       exists = (topicConfig.locationKeywords || []).includes(keyword);
+    } else {
+      exists = (topicConfig.blockedTerms || []).includes(keyword);
     }
 
     if (!exists) {
@@ -1873,8 +1903,10 @@ export async function handleKeywordCommand(
 
       if (type === "standard") {
         currentConfig.keywords = currentConfig.keywords.filter(k => k !== keyword);
-      } else {
+      } else if (type === "location") {
         currentConfig.locationKeywords = (currentConfig.locationKeywords || []).filter(k => k !== keyword);
+      } else {
+        currentConfig.blockedTerms = (currentConfig.blockedTerms || []).filter(k => k !== keyword);
       }
 
       updatedTopics[topic] = currentConfig;
@@ -1971,19 +2003,31 @@ export async function handleRemoveArticleModal(
       return;
     }
 
-    // Attempt to delete the message from Discord
-    if (article.discordChannelId && article.discordMessageId) {
-      try {
-        const channel = await client.channels.fetch(article.discordChannelId);
-        if (channel?.isTextBased()) {
-          const msg = await channel.messages.fetch(article.discordMessageId);
-          if (msg) {
-            await msg.delete();
-          }
-        }
-      } catch (err) {
-        console.warn(`Could not delete message from Discord:`, err);
+    if (!article.discordChannelId || !article.discordMessageId) {
+      await interaction.editReply({
+        content: "Failed to remove article: the stored article is missing Discord message metadata."
+      });
+      return;
+    }
+
+    try {
+      const channel = await client.channels.fetch(article.discordChannelId);
+      if (!channel?.isTextBased()) {
+        await interaction.editReply({
+          content: "Failed to remove article: the stored Discord channel is not available for message deletion."
+        });
+        return;
       }
+
+      const msg = await channel.messages.fetch(article.discordMessageId);
+      await msg.delete();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`Could not delete message from Discord:`, err);
+      await interaction.editReply({
+        content: `Failed to remove article from Discord. Database status was not changed. Error: ${msg}`
+      });
+      return;
     }
 
     // Update database status of the article

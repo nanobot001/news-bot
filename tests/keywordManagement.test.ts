@@ -189,6 +189,7 @@ test("Topic Keyword Management and Refresh Lookback Suite", async (t) => {
     assert.match(replyContent, /Keywords for Topic Lane: \*\*tech\*\*/);
     assert.match(replyContent, /ai.*rust/);
     assert.match(replyContent, /toronto/);
+    assert.ok(replyContent.includes("Negative Keywords (0)"));
   });
 
   await t.test("add/remove keywords - denies non-managers", async () => {
@@ -400,6 +401,70 @@ test("Topic Keyword Management and Refresh Lookback Suite", async (t) => {
 
       // Verify in-memory reload
       assert.ok(!appConfig.topics.tech.keywords.includes("typescript"));
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalEnv;
+    }
+  });
+
+  await t.test("add keyword - trims, lowercases and persists negative keyword", async () => {
+    const originalEnv = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "9999";
+
+    try {
+      let deferred = false;
+      let edited = false;
+      let editContent = "";
+
+      const interaction = createMockInteraction({
+        userId: "9999", // manager
+        subcommand: "add",
+        optionsMap: { topic: "tech", keyword: "  SPAMMY  ", type: "negative" },
+        onDeferReply: () => { deferred = true; },
+        onEditReply: (payload) => {
+          edited = true;
+          editContent = typeof payload === "string" ? payload : payload.content;
+        }
+      });
+
+      await handleKeywordCommand(interaction, appConfig);
+      assert.ok(deferred);
+      assert.ok(edited);
+      assert.match(editContent, /Successfully added \*\*negative\*\* keyword `spammy`/);
+
+      // Verify in-memory reload
+      assert.ok(appConfig.topics.tech.blockedTerms.includes("spammy"));
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalEnv;
+    }
+  });
+
+  await t.test("remove keyword - trims, lowercases and deletes negative keyword", async () => {
+    const originalEnv = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "9999";
+
+    try {
+      let deferred = false;
+      let edited = false;
+      let editContent = "";
+
+      const interaction = createMockInteraction({
+        userId: "9999", // manager
+        subcommand: "remove",
+        optionsMap: { topic: "tech", keyword: "  SPAMMY  ", type: "negative" },
+        onDeferReply: () => { deferred = true; },
+        onEditReply: (payload) => {
+          edited = true;
+          editContent = typeof payload === "string" ? payload : payload.content;
+        }
+      });
+
+      await handleKeywordCommand(interaction, appConfig);
+      assert.ok(deferred);
+      assert.ok(edited);
+      assert.match(editContent, /Successfully removed \*\*negative\*\* keyword `spammy`/);
+
+      // Verify in-memory reload
+      assert.ok(!appConfig.topics.tech.blockedTerms.includes("spammy"));
     } finally {
       process.env.BOT_MANAGER_USER_IDS = originalEnv;
     }

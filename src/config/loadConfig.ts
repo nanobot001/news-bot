@@ -26,6 +26,10 @@ async function readJsonFile(path: string): Promise<unknown> {
 
   try {
     raw = await readFile(path, "utf8");
+    // Strip UTF-8 BOM if present
+    if (raw.charCodeAt(0) === 0xFEFF) {
+      raw = raw.substring(1);
+    }
   } catch (error) {
     throw new Error(`Unable to read config file ${path}: ${formatError(error)}`);
   }

@@ -1,5 +1,10 @@
 # Block 2-10: Manual Article Removal & Feedback Loop
 
+> Status: Implemented on 2026-05-26.
+> Result: Implemented.
+> Verification: `npm run typecheck` - passed; `npm run test:all` - passed, 139 tests.
+> Notes: Removal now updates SQLite and writes the removal audit log only after the Discord message deletion succeeds; deletion failures leave article status unchanged and report the failure to the operator.
+
 ## Goal
 
 Implement a mechanism for bot managers to retract posted articles directly from Discord using a Message Context Menu command ("Remove Article"). The removal process will prompt the operator for a reason via a Discord Modal, delete the post from Discord, update its status to `"REMOVED"` in SQLite, and capture diagnostic info on which keywords triggered the false positive. This feeds back into `/audit` to help tune the topic's keyword configuration.
