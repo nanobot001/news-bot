@@ -1,221 +1,367 @@
 # Discord News Bot
 
-A Discord news-gathering bot MVP that polls curated RSS feeds, normalizes articles into an internal event format, deduplicates and scores them, and posts eligible articles as rich embeds into topic-specific channels.
+A Discord news-gathering bot that polls curated RSS feeds, normalizes articles, deduplicates and scores them by topic, and posts eligible stories as Discord embeds into topic-specific channels.
 
-The project is structured as a robust event pipeline designed for extensibility:
+The project is built around a small, extensible event pipeline:
 
 ```txt
 raw source -> normalized event -> dedupe -> scoring/filtering -> Discord publishing -> storage/logging
 ```
 
----
+## Status
 
-## Status: Stable (Phase 1 MVP Complete)
-
-The Phase 1 MVP is fully implemented, verified, and ready for deployment.
-
----
+Phase 1 MVP is complete. Phase 2 curation and operations features are partially implemented, including favorites, email forwarding, bot manager controls, topic/source/keyword management, curation audit logs, and manual article removal.
 
 ## Technical Stack
 
-- **Runtime:** Node.js (v20+)
-- **Language:** TypeScript
-- **Discord API:** `discord.js` (v14)
-- **RSS Parser:** `rss-parser`
-- **Database:** SQLite (local file database)
-- **ORM:** Prisma
-- **Scheduler:** `node-cron`
-- **Execution:** `tsx` (development), `tsc` (production build)
+- Runtime: Node.js `>=22 <23`
+- Language: TypeScript
+- Discord API: `discord.js` v14
+- RSS parser: `rss-parser`
+- Database: SQLite
+- ORM: Prisma
+- Scheduler: `node-cron`
+- Mail forwarding: `nodemailer`
+- Development runner: `tsx`
 
----
+## Setup
 
-## Setup & Installation
+Install dependencies:
 
-### 1. Install Dependencies
-Clone the repository, navigate to the root directory, and install npm dependencies:
 ```powershell
 npm install
 ```
 
-### 2. Configure Environment Variables (`.env`)
-Create a `.env` file in the root directory. You can copy the template from `.env.example`:
+Create a `.env` file from `.env.example`:
+
 ```powershell
 cp .env.example .env
 ```
-Fill in the following environment variables:
 
-| Environment Variable | Description |
+Required environment variables:
+
+| Variable | Description |
 |---|---|
-| `DISCORD_TOKEN` | The secret token of your Discord bot. |
-| `DISCORD_CLIENT_ID` | The Application Client ID of your Discord bot. |
-| `DISCORD_GUILD_ID` | The Server (Guild) ID where you want to register slash commands for development. |
-| `DATABASE_URL` | SQLite database URI, e.g., `"file:./dev.db"`. |
-| `NODE_ENV` | Environment state (`development` or `production`). |
-| `POLL_CRON` | Cron schedule expression for polling, e.g., `*/30 * * * *` (polls every 30 minutes). |
-| `RUN_IMMEDIATE` | *(Optional, Dev only)* Set to `true` to trigger an immediate polling run upon startup. |
-| `DRY_RUN` | *(Optional, Dev only)* Set to `true` to print embeds to console without posting to Discord. |
-| `BOT_MANAGER_USER_IDS` | *(Optional)* Comma-separated list of Discord user IDs allowed to run management commands. |
-| `BOT_MANAGER_ROLE_IDS` | *(Optional)* Comma-separated list of Discord role IDs allowed to run management commands. |
+| `DISCORD_TOKEN` | Discord bot token. |
+| `DISCORD_CLIENT_ID` | Discord application client ID. |
+| `DISCORD_GUILD_ID` | Guild where commands are registered. |
+| `DATABASE_URL` | SQLite database URI, for example `"file:./dev.db"`. |
+| `POLL_CRON` | Cron schedule for polling, for example `*/30 * * * *`. |
 
-**Example `.env`:**
-```env
-DISCORD_TOKEN=your_discord_bot_token_here
-DISCORD_CLIENT_ID=123456789012345678
-DISCORD_GUILD_ID=123456789012345678
-DATABASE_URL="file:./dev.db"
-NODE_ENV=development
-POLL_CRON="*/30 * * * *"
-RUN_IMMEDIATE=true
-DRY_RUN=false
+Common optional variables:
+
+| Variable | Description |
+|---|---|
+| `NODE_ENV` | Use `development` or `production`. |
+| `RUN_IMMEDIATE` | In development, set `true` to poll once at startup. |
+| `DRY_RUN` | Set `true` to log would-be posts without sending Discord messages. |
+| `BOT_MANAGER_USER_IDS` | Comma-separated Discord user IDs allowed to run manager commands. |
+| `BOT_MANAGER_ROLE_IDS` | Comma-separated Discord role IDs allowed to run manager commands. |
+| `INSTAPAPER_USERNAME` / `INSTAPAPER_PASSWORD` | Optional Instapaper Simple API credentials for favorite sync. |
+| `FORWARD_DESTINATION_EMAIL` | Destination email address for reaction-based email forwarding. |
+| `FORWARD_EMAIL_EMOJI` | Optional custom emoji name for email forwarding reactions. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional SMTP settings for email forwarding. |
+| `ALLOW_ETHEREAL_FALLBACK` | Allows Ethereal test mail fallback outside development when set to `true`. |
+
+Initialize Prisma and SQLite:
+
+```powershell
+npx prisma generate
+npx prisma migrate dev --name init
 ```
 
----
+Run the bot in development:
 
-## Configuration Files
+```powershell
+npm run dev
+```
 
-The bot's routing, scoring rules, and ingest sources are defined in two JSON configuration files located in `src/config/`.
+Build and run production JavaScript:
 
-### 1. Topics Routing & Rules (`src/config/topics.json`)
-Defines target channels and scoring rules for each news topic.
-- **`channelId`**: The Discord channel ID where eligible news will be posted.
-- **`keywords`**: Terms that give a +20/10 score bonus per occurrence.
-- **`blockedTerms`**: Terms that immediately penalize an article with -100 points.
-- **`postThreshold`**: The minimum score required for an article to be posted (eligible).
-- **`emoji`**: *(Optional)* Discord emoji (Unicode or custom) to prefix posted titles.
-- **`disabled`**: *(Optional)* Boolean flag. If `true`, polling for this topic is skipped.
+```powershell
+npm run build
+npm start
+```
+
+## Configuration
+
+Runtime configuration lives in `src/config/topics.json` and `src/config/sources.json`. Use `/reload-config` after manual file edits, or use the manager commands to persist changes from Discord.
+
+### Topics
+
+Each topic defines where articles post and how they are scored.
 
 ```json
 {
-  "anime": {
+  "toronto-eats": {
     "channelId": "1507578466982170686",
-    "keywords": ["anime", "trailer", "season", "adaptation"],
-    "blockedTerms": ["sponsored"],
-    "postThreshold": 50,
-    "emoji": "📺",
+    "keywords": ["restaurant", "brunch", "opening"],
+    "locationKeywords": ["scarborough", "ossington", "kensington market"],
+    "blockedTerms": ["shooting", "police", "election"],
+    "postThreshold": 30,
+    "emoji": "<:torontofoodie3:1508674647711940702>",
     "disabled": false
-  },
-  "movies": {
-    "channelId": "1507578466982170686",
-    "keywords": ["trailer", "box office", "release date", "streaming"],
-    "blockedTerms": ["celebrity gossip"],
-    "postThreshold": 50
   }
 }
 ```
 
-### 2. Ingest Sources (`src/config/sources.json`)
-Defines the RSS feeds to poll, grouped under their respective topics.
-- **`name`**: Descriptive label for the feed.
-- **`url`**: The RSS XML feed URL.
-- **`trusted`**: Boolean flag. If `true`, articles from this source receive a +50 bonus to their score.
+Fields:
+
+- `channelId`: Discord channel ID for posted articles.
+- `keywords`: Core topic terms. Title matches add 20 points; summary matches add 10 points.
+- `locationKeywords`: Optional geographic terms. These only score when the article also matches a core keyword or comes from a trusted source.
+- `blockedTerms`: Negative terms. Any match applies a 100 point penalty.
+- `postThreshold`: Minimum score required to post.
+- `emoji`: Optional Unicode or Discord custom emoji prefix for embed titles.
+- `disabled`: Optional flag. Disabled topics are skipped by polling.
+
+### Why Location Keywords Are Separate
+
+Location terms are useful but noisy. A Toronto food topic may care about `scarborough` when an article is about a restaurant, but not when an article is about crime, sports, traffic, or politics in Scarborough.
+
+The scorer handles this by separating:
+
+- Core keywords: the article is about the topic.
+- Location keywords: the article is relevant to a place.
+- Blocked terms: the article should be suppressed or heavily penalized.
+
+Location keyword points are only awarded if the article already has core topic context or comes from a trusted source. A location-only match from an untrusted feed is recorded as ignored and receives no location score.
+
+### Sources
+
+RSS sources are grouped by topic.
 
 ```json
 {
-  "anime": [
+  "toronto-eats": [
     {
-      "name": "Anime News Network",
-      "url": "https://www.animenewsnetwork.com/all/rss.xml",
-      "trusted": true
-    }
-  ],
-  "movies": [
-    {
-      "name": "Example Movie Feed",
-      "url": "https://example.com/rss",
+      "name": "Daily Hive Toronto",
+      "url": "https://dailyhive.com/feed/toronto",
       "trusted": false
     }
   ]
 }
 ```
 
----
+Trusted sources receive a 15 point score bonus and can allow location keywords to score even when no core keyword matched.
 
-## Database Initialization (Prisma & SQLite)
+## Discord Commands
 
-The storage and deduplication system uses Prisma with SQLite. Run the following commands to initialize the database:
+The bot registers slash commands and one message context menu command at startup when `DISCORD_GUILD_ID` is configured.
 
-```powershell
-# 1. Generate Prisma Client
-npx prisma generate
+### Autocomplete
 
-# 2. Deploy Schema & Create Database
-npx prisma migrate dev --name init
-```
+Discord autocomplete runs while the user is focused in an autocomplete-enabled option. It returns at most 25 choices.
 
-This creates the SQLite database file specified in your `DATABASE_URL` (typically `prisma/dev.db`) and creates the `Article` table used for deduplication.
+Topic autocomplete is sourced from configured topic names in `topics.json` and is enabled for:
 
----
+- `/testfeed topic`
+- `/lastposts topic`
+- `/refresh topic`
+- `/search topic`
+- `/sources topic`
+- `/favorites topic`
+- `/audit topic`
+- `/topic view topic`
+- `/topic set-channel topic`
+- `/topic set-threshold topic`
+- `/topic set-emoji topic`
+- `/topic disable topic`
+- `/source list topic`
+- `/source add topic`
+- `/source remove topic`
+- `/keyword view topic`
+- `/keyword add topic`
+- `/keyword remove topic`
 
-## Running the Bot
+Article autocomplete is enabled for `/unfavorite article`. It searches the invoking user's favorites using the current typed text and returns favorite IDs as option values.
 
-### Development Mode
-Runs the bot directly from TypeScript sources using `tsx`. If `RUN_IMMEDIATE=true` is set in `.env`, the first poll will start immediately.
-```powershell
-npm run dev
-```
+Keyword autocomplete is enabled for `/keyword remove keyword`. It depends on the currently selected `topic` and `type`.
 
-### Production Build & Execution
-Build (compile) the TypeScript sources to JavaScript and start the production bot:
-```powershell
-# Compile TypeScript to dist/
-npm run build
+For `/keyword remove`, autocomplete depends on both `topic` and `type`:
 
-# Start the compiled bot
-npm start
-```
+- `type:standard` suggests `keywords`.
+- `type:location` suggests `locationKeywords`.
+- `type:negative` suggests `blockedTerms`.
 
----
+If the required context is missing, such as an unknown `topic`, autocomplete returns no choices.
 
-## Slash Commands
+### Command Reference
 
-The bot automatically registers the following slash commands in the server matching your `DISCORD_GUILD_ID` upon startup:
+| Command | Options | Access | Autocomplete | Description |
+|---|---|---|---|---|
+| `/ping` | none | Anyone | none | Check that the bot is responding. |
+| `/testfeed` | `topic` required | Bot manager | `topic` | Dry-run a topic feed check without posting. |
+| `/lastposts` | `topic` required, `status` optional, `hours` optional | Anyone | `topic` | Show recent posted or unposted articles. |
+| `/reload-config` | none | Bot manager | none | Reload JSON config without restarting. |
+| `/refresh` | `topic` optional, `hours` optional | Bot manager | `topic` | Run polling now; with `topic` and `hours`, re-score recent unposted articles for that topic. |
+| `/stats` | none | Anyone | none | Show database totals, posted counts, skipped counts, and manual removal counts. |
+| `/search` | `query` required, `topic` optional | Anyone | `topic` | Search stored article titles. |
+| `/topics` | none | Anyone | none | List configured topics, thresholds, status, keywords, location keywords, and blocked terms. |
+| `/sources` | `topic` optional | Anyone | `topic` | List configured RSS sources. |
+| `/favorites` | `topic`, `query`, `source`, `since`, `limit` optional | Anyone | `topic` | Recall your saved favorites. |
+| `/unfavorite` | `article` required | Anyone | `article` | Remove one of your saved favorites. |
+| `/audit` | `topic` required, `limit`, `query`, `status` optional | Bot manager | `topic` | View recent curation and scoring logs. |
+| `/topic` | subcommands below | Bot manager | `topic` where present | Manage topic lanes. |
+| `/source` | subcommands below | Bot manager | `topic` where present | Manage RSS sources. |
+| `/keyword` | subcommands below | Mixed | `topic`; `keyword` on remove | View and manage topic keywords. |
 
-- **`/ping`**: Replies with `pong!` to verify bot connectivity and slash command response latency.
-- **`/testfeed <topic>`**: Performs a dry-run check of the feeds for a given topic. It prints statistics on feeds checked, items found, new items, and items passing the eligibility threshold, *without* posting anything to Discord or saving duplicates.
-- **`/lastposts <topic>`**: Queries the SQLite database and returns a list of the 5 most recently posted and saved articles for the specified topic.
-- **`/reload-config`**: Reloads the `topics.json` and `sources.json` configuration files in-place without restarting the bot. Any scheduled poll or command run after this will use the new configurations.
-- **`/topic`**: Bot manager suite for topic management.
-  - `/topic list`: Lists all topics and their settings, highlighting active vs. disabled status.
-  - `/topic view <topic>`: Shows detailed channel, threshold, emoji, and RSS source configurations for a topic.
-  - `/topic create <name> <channel> [threshold] [emoji]`: Creates a new topic configuration lane.
-  - `/topic set-channel <topic> <channel>`: Sets the target posting channel for a topic.
-  - `/topic set-threshold <topic> <threshold>`: Sets the posting score threshold for a topic.
-  - `/topic set-emoji <topic> <emoji>`: Sets or clears (using `clear`) the emoji prefix for a topic.
-  - `/topic disable <topic>`: Toggles the disabled/active state of a topic.
-- **`/source`**: Bot manager suite for managing RSS feed sources per topic.
-  - `/source list <topic>`: Lists all configured RSS sources for a topic.
-  - `/source add <topic> <name> <url> <trusted>`: Adds a new RSS source to a topic (and marks it trusted/untrusted).
-  - `/source remove <topic> <name>`: Removes an RSS source from a topic by its name.
+Message context menu command:
 
----
+| Command | Target | Access | Description |
+|---|---|---|---|
+| `Remove Article` | A Discord message | Bot manager | Opens a modal to remove a bot-posted article with an operator reason. |
 
-## Verification & Manual Smoke Testing
+`/lastposts status` choices:
 
-Follow these steps to manually verify the bot setup on a development Discord server:
+- `posted`: show posted articles.
+- `unposted`: show indexed/skipped/deferred/removed articles.
 
-1. **Invite Bot to Guild:** Ensure your bot has been invited to your server with `bot` and `applications.commands` scopes.
-2. **Channel Permissions:** Ensure the bot has `Send Messages` and `Embed Links` permissions in the channels configured in `topics.json`.
-3. **Start the Bot:** Run `npm run dev`. Verify the logs output:
-   - Successful loading of topics and sources.
-   - Successful slash command registration to the guild.
-   - Successful gateway connection ("Connected as ...").
-4. **Trigger Commands in Discord:**
-   - Run `/ping` in any channel. Verify response.
-   - Run `/testfeed anime`. Verify the bot reports feed status, scoring, and eligible posts count.
-   - Run `/reload-config`. Verify the bot confirms configuration has been reloaded.
-5. **Verify Scheduled Polling Logs:** Verify structured logging outputs poll statistics (e.g., `Checked X feeds, found Y new articles, posted Z articles`).
-6. **Verify Database Persistence:** Run `/lastposts anime` to verify that previously posted articles can be retrieved from the database.
+`/audit status` choices:
 
----
+- `POSTED`
+- `SKIPPED_THRESHOLD`
+- `SKIPPED_BLOCKED`
+- `DEFERRED_COOLDOWN`
+- `REMOVED`
+
+### Topic Subcommands
+
+| Subcommand | Options | Autocomplete | Description |
+|---|---|---|---|
+| `/topic list` | none | none | List all topics, including disabled topics. |
+| `/topic view` | `topic` required | `topic` | Show full topic settings. |
+| `/topic create` | `name` required, `channel` required, `threshold` optional, `emoji` optional | none | Create a topic lane. |
+| `/topic set-channel` | `topic` required, `channel` required | `topic` | Change posting channel. |
+| `/topic set-threshold` | `topic` required, `threshold` required | `topic` | Change posting threshold. |
+| `/topic set-emoji` | `topic` required, `emoji` required | `topic` | Set an emoji prefix, or pass `clear` to remove it. |
+| `/topic disable` | `topic` required | `topic` | Toggle active/disabled state. |
+
+### Source Subcommands
+
+| Subcommand | Options | Autocomplete | Description |
+|---|---|---|---|
+| `/source list` | `topic` required | `topic` | List sources for a topic. |
+| `/source add` | `topic`, `name`, `url`, `trusted` required | `topic` | Add an RSS source. |
+| `/source remove` | `topic`, `name` required | `topic` | Remove a source by name. |
+
+### Keyword Subcommands
+
+| Subcommand | Options | Access | Autocomplete | Description |
+|---|---|---|---|---|
+| `/keyword view` | `topic` required | Anyone | `topic` | View standard, location, and negative keywords. |
+| `/keyword add` | `topic`, `keyword` required; `type` optional | Bot manager | `topic` | Add a standard, location, or negative keyword. |
+| `/keyword remove` | `topic`, `keyword` required; `type` optional | Bot manager | `topic`, `keyword` | Remove a standard, location, or negative keyword. |
+
+`/keyword type` choices:
+
+- `standard`: edits `keywords`.
+- `location`: edits `locationKeywords`.
+- `negative`: edits `blockedTerms`.
+
+### Favorites
+
+- React to a bot-posted article with a heart emoji to save it as a personal favorite.
+- Remove the heart reaction to delete that favorite.
+- `/favorites [topic] [query] [source] [since] [limit]`: Recall your saved articles.
+- `/unfavorite article:<favorite>`: Remove a favorite using autocomplete.
+
+If Instapaper credentials are configured, favorited article URLs are also sent to Instapaper. The favorite record stores whether Instapaper sync succeeded, failed, or was skipped.
+
+### Email Forwarding
+
+React to a bot-posted article with a mail emoji, or the configured `FORWARD_EMAIL_EMOJI`, to forward the article by email.
+
+The forwarding flow:
+
+- Looks up the article by Discord message ID.
+- Sends article title, source, topic, article URL, and Discord message link.
+- Records an idempotent `EmailForward` row so successful forwards are not repeated.
+- Sends the reacting user a DM with success, failure, or an Ethereal preview URL in development.
+
+Configure `FORWARD_DESTINATION_EMAIL` and SMTP settings for production forwarding. In development, the bot can use Ethereal test mail when no SMTP host is configured.
+
+### Curation Audit
+
+- `/audit topic:<topic> [limit] [query] [status]`: View recent curation and scoring logs.
+
+Supported status filters:
+
+- `POSTED`
+- `SKIPPED_THRESHOLD`
+- `SKIPPED_BLOCKED`
+- `DEFERRED_COOLDOWN`
+- `REMOVED`
+
+For removed articles, `/audit` shows the operator reason, original score, matched keywords, matched location keywords, and an aggregated culprit keyword summary for the last 100 removals.
+
+### Bot Manager Access
+
+Bot manager access is controlled by `BOT_MANAGER_USER_IDS`, `BOT_MANAGER_ROLE_IDS`, or Discord `Manage Guild` permission when no explicit manager IDs or roles are configured.
+
+Manager-only commands include `/testfeed`, `/reload-config`, `/refresh`, `/audit`, `/topic`, `/source`, `/keyword add`, `/keyword remove`, and the `Remove Article` message context command. `/keyword view` is intentionally available to anyone so operators can inspect topic rules without edit permission.
+
+### Manual Article Removal
+
+Bot managers can right-click or long-press a bot-posted article and choose the message context menu command **Remove Article**.
+
+The removal flow:
+
+1. Authenticates the operator as a bot manager.
+2. Verifies the Discord message maps to a stored article.
+3. Shows a modal requiring a removal reason.
+4. Deletes the Discord message.
+5. Only after successful deletion, updates the article to `REMOVED` and stores the reason in `statusReason`.
+6. Writes a `REMOVED` curation log with the reason and original scoring breakdown.
+
+If Discord deletion fails, the database status and audit log are left unchanged and the operator receives an error.
+
+## Scoring Summary
+
+Article scores are deterministic:
+
+- Title core keyword match: `+20`
+- Summary core keyword match: `+10`
+- Title location keyword match: `+20`, only with core topic context or trusted source
+- Summary location keyword match: `+10`, only with core topic context or trusted source
+- Trusted source bonus: `+15`
+- Blocked term match: `-100`
+- Missing URL: `-10`
+
+Articles post when their score meets or exceeds the topic `postThreshold`, after dedupe and age/filter checks.
+
+## Manual Smoke Testing
+
+1. Invite the bot with `bot` and `applications.commands` scopes.
+2. Confirm it has channel permissions for `Send Messages`, `Embed Links`, `Read Message History`, `Add Reactions`, and message deletion where manual removal is expected.
+3. Start the bot with `npm run dev`.
+4. Verify startup logs show config load, Discord connection, command registration, and scheduler startup.
+5. Run `/ping`.
+6. Run `/testfeed topic:<topic>`.
+7. Run `/refresh topic:<topic>`.
+8. Confirm a posted article appears in the configured channel.
+9. React with a heart, then verify `/favorites`.
+10. If email forwarding is configured, react with a mail emoji and confirm the DM/email result.
+11. As a bot manager, use **Remove Article** on a bot post, submit a reason, and confirm the message disappears.
+12. Run `/audit topic:<topic> status:REMOVED` and `/stats` to confirm removal diagnostics.
 
 ## Automated Verification
 
-You can run automated checks at any time using:
+Run TypeScript typecheck:
 
 ```powershell
-# Run TypeScript Typecheck
 npm run typecheck
+```
 
-# Run Test Suite
+Run the full test suite:
+
+```powershell
 npm test
+```
+
+Run targeted test suites:
+
+```powershell
+npm run test:storage
+npm run test:bot
 ```
