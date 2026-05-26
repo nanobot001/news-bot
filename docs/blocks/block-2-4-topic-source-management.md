@@ -1,7 +1,7 @@
 # Block 2-4: Topic & Source Management Commands
 
-> Status: Planned.
-> Result: Not implemented.
+> Status: Completed.
+> Result: Implemented.
 > Notes: Adds the Discord-side control plane for creating and adjusting topic lanes before keyword, trust, throttling, and digest settings expand.
 
 ## Goal

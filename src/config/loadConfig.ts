@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile, rename } from "node:fs/promises";
 
 export type TopicConfig = {
   channelId: string;
@@ -6,6 +6,7 @@ export type TopicConfig = {
   blockedTerms: string[];
   postThreshold: number;
   emoji?: string;
+  disabled?: boolean;
 };
 
 export type SourceConfig = {
@@ -32,6 +33,17 @@ async function readJsonFile(path: string): Promise<unknown> {
     return JSON.parse(raw) as unknown;
   } catch (error) {
     throw new Error(`Malformed JSON in config file ${path}: ${formatError(error)}`);
+  }
+}
+
+async function writeJsonFileAtomic(path: string, data: unknown): Promise<void> {
+  const tmpPath = path + ".tmp";
+  const jsonString = JSON.stringify(data, null, 2);
+  try {
+    await writeFile(tmpPath, jsonString, "utf8");
+    await rename(tmpPath, path);
+  } catch (error) {
+    throw new Error(`Failed to write config file atomic to ${path}: ${formatError(error)}`);
   }
 }
 
@@ -67,12 +79,17 @@ function validateTopics(value: unknown): Record<string, TopicConfig> {
       throw new Error(`topics.${topicName}.emoji must be a string`);
     }
 
+    if (topic.disabled !== undefined && typeof topic.disabled !== "boolean") {
+      throw new Error(`topics.${topicName}.disabled must be a boolean`);
+    }
+
     topics[topicName] = {
       channelId: topic.channelId,
       keywords: validateStringArray(topic.keywords, `topics.${topicName}.keywords`),
       blockedTerms: validateStringArray(topic.blockedTerms, `topics.${topicName}.blockedTerms`),
       postThreshold: topic.postThreshold,
-      emoji: topic.emoji as string | undefined
+      emoji: topic.emoji as string | undefined,
+      disabled: topic.disabled as boolean | undefined
     };
   }
 
@@ -155,4 +172,13 @@ export async function reloadAppConfig(config: AppConfig): Promise<void> {
   Object.assign(config.topics, newConfig.topics);
   Object.assign(config.sources, newConfig.sources);
 }
+
+export async function saveTopicsConfig(topics: Record<string, TopicConfig>): Promise<void> {
+  await writeJsonFileAtomic("src/config/topics.json", topics);
+}
+
+export async function saveSourcesConfig(sources: Record<string, SourceConfig[]>): Promise<void> {
+  await writeJsonFileAtomic("src/config/sources.json", sources);
+}
+
 

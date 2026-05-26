@@ -5,7 +5,7 @@ import {
   type RESTPostAPIChatInputApplicationCommandsJSONBody,
   type Client
 } from "discord.js";
-import { type AppConfig, reloadAppConfig } from "../config/loadConfig.js";
+import { type AppConfig, reloadAppConfig, saveTopicsConfig, saveSourcesConfig } from "../config/loadConfig.js";
 import { getArticlesForTopic, getFavorites, deleteFavoriteById, getCurationLogs } from "../storage/articleRepo.js";
 import { pollNews } from "../jobs/pollNews.js";
 import { prisma } from "../storage/prismaClient.js";
@@ -162,6 +162,157 @@ export const auditCommand = new SlashCommandBuilder()
       )
   );
 
+export const topicCommand = new SlashCommandBuilder()
+  .setName("topic")
+  .setDescription("Manage topics for the news bot (Bot Manager only)")
+  .addSubcommand(sub =>
+    sub.setName("list")
+      .setDescription("List all topics, including disabled ones")
+  )
+  .addSubcommand(sub =>
+    sub.setName("view")
+      .setDescription("View details of a specific topic config")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to view")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("create")
+      .setDescription("Create a new news topic")
+      .addStringOption(option =>
+        option.setName("name")
+          .setDescription("The name of the new topic (lowercase, alphanumeric, hyphens only)")
+          .setRequired(true)
+      )
+      .addChannelOption(option =>
+        option.setName("channel")
+          .setDescription("The Discord channel to post articles to")
+          .setRequired(true)
+      )
+      .addIntegerOption(option =>
+        option.setName("threshold")
+          .setDescription("The minimum score required to post (default: 20)")
+          .setRequired(false)
+      )
+      .addStringOption(option =>
+        option.setName("emoji")
+          .setDescription("The prefix emoji for the topic notifications (optional)")
+          .setRequired(false)
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("set-channel")
+      .setDescription("Set the posting channel for a topic")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to update")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+      .addChannelOption(option =>
+        option.setName("channel")
+          .setDescription("The new Discord channel to post to")
+          .setRequired(true)
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("set-threshold")
+      .setDescription("Set the posting threshold for a topic")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to update")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+      .addIntegerOption(option =>
+        option.setName("threshold")
+          .setDescription("The new minimum score required to post")
+          .setRequired(true)
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("set-emoji")
+      .setDescription("Set or clear the emoji prefix for a topic")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to update")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+      .addStringOption(option =>
+        option.setName("emoji")
+          .setDescription("The new emoji prefix, or 'clear' to remove")
+          .setRequired(true)
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("disable")
+      .setDescription("Toggle polling state for a topic")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to disable/enable")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+  );
+
+export const sourceCommand = new SlashCommandBuilder()
+  .setName("source")
+  .setDescription("Manage news sources for the news bot (Bot Manager only)")
+  .addSubcommand(sub =>
+    sub.setName("list")
+      .setDescription("List RSS feed sources configured for a topic")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to view sources for")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("add")
+      .setDescription("Add an RSS feed source to a topic")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to add the source to")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+      .addStringOption(option =>
+        option.setName("name")
+          .setDescription("The name of the source (e.g. TechCrunch)")
+          .setRequired(true)
+      )
+      .addStringOption(option =>
+        option.setName("url")
+          .setDescription("The RSS feed URL")
+          .setRequired(true)
+      )
+      .addBooleanOption(option =>
+        option.setName("trusted")
+          .setDescription("Whether this is a trusted source (+35 score bonus)")
+          .setRequired(true)
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("remove")
+      .setDescription("Remove an RSS feed source from a topic")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to remove the source from")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+      .addStringOption(option =>
+        option.setName("name")
+          .setDescription("The name of the source to remove")
+          .setRequired(true)
+      )
+  );
+
 export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
   return [
     pingCommand.toJSON(),
@@ -175,7 +326,9 @@ export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicatio
     sourcesCommand.toJSON(),
     favoritesCommand.toJSON(),
     unfavoriteCommand.toJSON(),
-    auditCommand.toJSON()
+    auditCommand.toJSON(),
+    topicCommand.toJSON(),
+    sourceCommand.toJSON()
   ];
 }
 
@@ -518,7 +671,8 @@ export async function handleTopicsCommand(
     let responseText = `**Configured News Topics**\n\n`;
 
     for (const [topic, settings] of Object.entries(appConfig.topics)) {
-      responseText += `- **${topic}**\n`;
+      const statusSuffix = settings.disabled ? " 🔴 (Disabled)" : "";
+      responseText += `- **${topic}**${statusSuffix}\n`;
       responseText += `  * Channel: <#${settings.channelId}>\n`;
       if (settings.emoji) {
         responseText += `  * Emoji: ${settings.emoji}\n`;
@@ -827,5 +981,402 @@ export async function handleAuditCommand(
     });
   }
 }
+
+function isValidEmoji(emoji: string): boolean {
+  // Allow Discord custom emojis: <:name:id> or <a:name:id>
+  const customEmojiRegex = /^<a?:[a-zA-Z0-9_]+:[0-9]+>$/;
+  if (customEmojiRegex.test(emoji)) {
+    return true;
+  }
+  // Allow standard unicode emojis: typically no spaces, length <= 16
+  if (emoji.includes(" ") || emoji.length > 16) {
+    return false;
+  }
+  return true;
+}
+
+export async function handleTopicCommand(
+  interaction: ChatInputCommandInteraction,
+  appConfig: AppConfig
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "list") {
+    const list = Object.entries(appConfig.topics).map(([name, config]) => {
+      const status = config.disabled ? "🔴 [DISABLED]" : "🟢 [ACTIVE]";
+      const emojiPrefix = config.emoji ? `${config.emoji} ` : "";
+      return `• **${name}** ${status} (Channel: <#${config.channelId}>, Threshold: ${config.postThreshold}, Emoji: ${emojiPrefix || "none"})`;
+    });
+    
+    if (list.length === 0) {
+      await interaction.reply({ content: "No topics configured.", ephemeral: true });
+      return;
+    }
+
+    await interaction.reply({
+      content: `### Configured Topics:\n${list.join("\n")}`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (subcommand === "view") {
+    const topic = interaction.options.getString("topic", true);
+    const config = appConfig.topics[topic];
+    if (!config) {
+      await interaction.reply({ content: `Unknown topic: "${topic}"`, ephemeral: true });
+      return;
+    }
+
+    const status = config.disabled ? "🔴 DISABLED" : "🟢 ACTIVE";
+    const emojiPrefix = config.emoji ? `${config.emoji}` : "none";
+    const sources = appConfig.sources[topic] || [];
+    const sourceList = sources.length > 0
+      ? sources.map(s => `  • **${s.name}** (${s.trusted ? "trusted" : "untrusted"}) - ${s.url}`).join("\n")
+      : "  *(no sources)*";
+
+    const content = `### Topic Lane: **${topic}** (${status})\n` +
+      `- **Channel:** <#${config.channelId}>\n` +
+      `- **Post Threshold:** ${config.postThreshold}\n` +
+      `- **Emoji Prefix:** ${emojiPrefix}\n` +
+      `- **Keywords (${config.keywords.length}):** ${config.keywords.join(", ") || "none"}\n` +
+      `- **Blocked Terms (${config.blockedTerms.length}):** ${config.blockedTerms.join(", ") || "none"}\n` +
+      `**Sources:**\n${sourceList}`;
+
+    await interaction.reply({ content, ephemeral: true });
+    return;
+  }
+
+  if (subcommand === "create") {
+    const name = interaction.options.getString("name", true).toLowerCase();
+    const channel = interaction.options.getChannel("channel", true);
+    const threshold = interaction.options.getInteger("threshold") ?? 20;
+    const emoji = interaction.options.getString("emoji") ?? undefined;
+
+    // Validate name
+    if (!/^[a-z0-9-]+$/.test(name)) {
+      await interaction.reply({
+        content: "Invalid topic name. Topic names must contain only lowercase alphanumeric characters and hyphens (e.g. `tech-news`, `sports`).",
+        ephemeral: true
+      });
+      return;
+    }
+
+    if (appConfig.topics[name]) {
+      await interaction.reply({
+        content: `A topic named "${name}" already exists.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Validate emoji
+    if (emoji !== undefined && !isValidEmoji(emoji)) {
+      await interaction.reply({
+        content: `Invalid emoji format. Please provide a standard emoji or a valid Discord custom emoji (e.g. \`<:name:id>\`).`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Validations passed! Modify config.
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedTopics = { ...appConfig.topics };
+      updatedTopics[name] = {
+        channelId: channel.id,
+        postThreshold: threshold,
+        emoji,
+        keywords: [],
+        blockedTerms: [],
+        disabled: false
+      };
+
+      const updatedSources = { ...appConfig.sources };
+      updatedSources[name] = [];
+
+      await saveTopicsConfig(updatedTopics);
+      await saveSourcesConfig(updatedSources);
+      await reloadAppConfig(appConfig);
+
+      await interaction.editReply({
+        content: `Successfully created topic lane **${name}** linked to channel <#${channel.id}> (threshold: ${threshold}, emoji: ${emoji || "none"}).`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `Failed to create topic: ${err.message}`
+      });
+    }
+    return;
+  }
+
+  // Common check for topic existence in other subcommands
+  const topic = interaction.options.getString("topic", true);
+  const config = appConfig.topics[topic];
+  if (!config) {
+    await interaction.reply({ content: `Unknown topic: "${topic}"`, ephemeral: true });
+    return;
+  }
+
+  if (subcommand === "set-channel") {
+    const channel = interaction.options.getChannel("channel", true);
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedTopics = { ...appConfig.topics };
+      updatedTopics[topic] = {
+        ...config,
+        channelId: channel.id
+      };
+
+      await saveTopicsConfig(updatedTopics);
+      await reloadAppConfig(appConfig);
+
+      await interaction.editReply({
+        content: `Successfully updated channel for topic **${topic}** to <#${channel.id}>.`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `Failed to update channel: ${err.message}`
+      });
+    }
+    return;
+  }
+
+  if (subcommand === "set-threshold") {
+    const threshold = interaction.options.getInteger("threshold", true);
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedTopics = { ...appConfig.topics };
+      updatedTopics[topic] = {
+        ...config,
+        postThreshold: threshold
+      };
+
+      await saveTopicsConfig(updatedTopics);
+      await reloadAppConfig(appConfig);
+
+      await interaction.editReply({
+        content: `Successfully updated post threshold for topic **${topic}** to **${threshold}**.`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `Failed to update threshold: ${err.message}`
+      });
+    }
+    return;
+  }
+
+  if (subcommand === "set-emoji") {
+    const emojiInput = interaction.options.getString("emoji", true);
+    const emoji = emojiInput.toLowerCase() === "clear" ? undefined : emojiInput;
+
+    if (emoji !== undefined && !isValidEmoji(emoji)) {
+      await interaction.reply({
+        content: `Invalid emoji format. Please provide a standard emoji, a valid Discord custom emoji, or \`clear\` to remove the emoji prefix.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedTopics = { ...appConfig.topics };
+      updatedTopics[topic] = {
+        ...config,
+        emoji
+      };
+
+      await saveTopicsConfig(updatedTopics);
+      await reloadAppConfig(appConfig);
+
+      await interaction.editReply({
+        content: emoji 
+          ? `Successfully updated emoji prefix for topic **${topic}** to ${emoji}.`
+          : `Successfully cleared emoji prefix for topic **${topic}**.`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `Failed to update emoji: ${err.message}`
+      });
+    }
+    return;
+  }
+
+  if (subcommand === "disable") {
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedTopics = { ...appConfig.topics };
+      const newDisabledState = !config.disabled;
+      updatedTopics[topic] = {
+        ...config,
+        disabled: newDisabledState
+      };
+
+      await saveTopicsConfig(updatedTopics);
+      await reloadAppConfig(appConfig);
+
+      const statusWord = newDisabledState ? "disabled" : "enabled";
+      const statusIcon = newDisabledState ? "🔴" : "🟢";
+      await interaction.editReply({
+        content: `${statusIcon} Topic **${topic}** is now **${statusWord}**.`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `Failed to toggle disabled state: ${err.message}`
+      });
+    }
+    return;
+  }
+}
+
+export async function handleSourceCommand(
+  interaction: ChatInputCommandInteraction,
+  appConfig: AppConfig
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const subcommand = interaction.options.getSubcommand();
+
+  if (subcommand === "list") {
+    const topic = interaction.options.getString("topic", true);
+    if (!appConfig.topics[topic]) {
+      await interaction.reply({ content: `Unknown topic: "${topic}"`, ephemeral: true });
+      return;
+    }
+
+    const sources = appConfig.sources[topic] || [];
+    if (sources.length === 0) {
+      await interaction.reply({ content: `No sources configured for topic "${topic}".`, ephemeral: true });
+      return;
+    }
+
+    const list = sources.map(s => {
+      const trustWord = s.trusted ? "⭐ [TRUSTED]" : "❌ [UNTRUSTED]";
+      return `• **${s.name}** - ${trustWord} - <${s.url}>`;
+    });
+
+    await interaction.reply({
+      content: `### Sources for Topic lane **${topic}**:\n${list.join("\n")}`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (subcommand === "add") {
+    const topic = interaction.options.getString("topic", true);
+    const name = interaction.options.getString("name", true).trim();
+    const url = interaction.options.getString("url", true).trim();
+    const trusted = interaction.options.getBoolean("trusted", true);
+
+    if (!appConfig.topics[topic]) {
+      await interaction.reply({ content: `Unknown topic: "${topic}"`, ephemeral: true });
+      return;
+    }
+
+    // Validate URL
+    try {
+      new URL(url);
+    } catch (_) {
+      await interaction.reply({ content: `Invalid URL format: "${url}"`, ephemeral: true });
+      return;
+    }
+
+    const currentSources = appConfig.sources[topic] || [];
+
+    // Validate duplicate name (case insensitive)
+    if (currentSources.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+      await interaction.reply({ content: `A source named "${name}" already exists for topic "${topic}".`, ephemeral: true });
+      return;
+    }
+
+    // Validate duplicate URL
+    if (currentSources.some(s => s.url === url)) {
+      await interaction.reply({ content: `A source with URL <${url}> already exists for topic "${topic}".`, ephemeral: true });
+      return;
+    }
+
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedSources = { ...appConfig.sources };
+      updatedSources[topic] = [
+        ...currentSources,
+        { name, url, trusted }
+      ];
+
+      await saveSourcesConfig(updatedSources);
+      await reloadAppConfig(appConfig);
+
+      const trustWord = trusted ? "trusted" : "untrusted";
+      await interaction.editReply({
+        content: `Successfully added ${trustWord} source **${name}** to topic **${topic}**.`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `Failed to add source: ${err.message}`
+      });
+    }
+    return;
+  }
+
+  if (subcommand === "remove") {
+    const topic = interaction.options.getString("topic", true);
+    const name = interaction.options.getString("name", true).trim();
+
+    if (!appConfig.topics[topic]) {
+      await interaction.reply({ content: `Unknown topic: "${topic}"`, ephemeral: true });
+      return;
+    }
+
+    const currentSources = appConfig.sources[topic] || [];
+    const index = currentSources.findIndex(s => s.name.toLowerCase() === name.toLowerCase());
+
+    if (index === -1) {
+      await interaction.reply({ content: `No source named "${name}" found for topic "${topic}".`, ephemeral: true });
+      return;
+    }
+
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedSources = { ...appConfig.sources };
+      const topicSources = [...currentSources];
+      topicSources.splice(index, 1);
+      updatedSources[topic] = topicSources;
+
+      await saveSourcesConfig(updatedSources);
+      await reloadAppConfig(appConfig);
+
+      await interaction.editReply({
+        content: `Successfully removed source **${name}** from topic **${topic}**.`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `Failed to remove source: ${err.message}`
+      });
+    }
+    return;
+  }
+}
+
 
 

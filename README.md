@@ -54,6 +54,8 @@ Fill in the following environment variables:
 | `POLL_CRON` | Cron schedule expression for polling, e.g., `*/30 * * * *` (polls every 30 minutes). |
 | `RUN_IMMEDIATE` | *(Optional, Dev only)* Set to `true` to trigger an immediate polling run upon startup. |
 | `DRY_RUN` | *(Optional, Dev only)* Set to `true` to print embeds to console without posting to Discord. |
+| `BOT_MANAGER_USER_IDS` | *(Optional)* Comma-separated list of Discord user IDs allowed to run management commands. |
+| `BOT_MANAGER_ROLE_IDS` | *(Optional)* Comma-separated list of Discord role IDs allowed to run management commands. |
 
 **Example `.env`:**
 ```env
@@ -76,9 +78,11 @@ The bot's routing, scoring rules, and ingest sources are defined in two JSON con
 ### 1. Topics Routing & Rules (`src/config/topics.json`)
 Defines target channels and scoring rules for each news topic.
 - **`channelId`**: The Discord channel ID where eligible news will be posted.
-- **`keywords`**: Terms that give a +15 score bonus per occurrence.
+- **`keywords`**: Terms that give a +20/10 score bonus per occurrence.
 - **`blockedTerms`**: Terms that immediately penalize an article with -100 points.
 - **`postThreshold`**: The minimum score required for an article to be posted (eligible).
+- **`emoji`**: *(Optional)* Discord emoji (Unicode or custom) to prefix posted titles.
+- **`disabled`**: *(Optional)* Boolean flag. If `true`, polling for this topic is skipped.
 
 ```json
 {
@@ -86,7 +90,9 @@ Defines target channels and scoring rules for each news topic.
     "channelId": "1507578466982170686",
     "keywords": ["anime", "trailer", "season", "adaptation"],
     "blockedTerms": ["sponsored"],
-    "postThreshold": 50
+    "postThreshold": 50,
+    "emoji": "📺",
+    "disabled": false
   },
   "movies": {
     "channelId": "1507578466982170686",
@@ -168,6 +174,18 @@ The bot automatically registers the following slash commands in the server match
 - **`/testfeed <topic>`**: Performs a dry-run check of the feeds for a given topic. It prints statistics on feeds checked, items found, new items, and items passing the eligibility threshold, *without* posting anything to Discord or saving duplicates.
 - **`/lastposts <topic>`**: Queries the SQLite database and returns a list of the 5 most recently posted and saved articles for the specified topic.
 - **`/reload-config`**: Reloads the `topics.json` and `sources.json` configuration files in-place without restarting the bot. Any scheduled poll or command run after this will use the new configurations.
+- **`/topic`**: Bot manager suite for topic management.
+  - `/topic list`: Lists all topics and their settings, highlighting active vs. disabled status.
+  - `/topic view <topic>`: Shows detailed channel, threshold, emoji, and RSS source configurations for a topic.
+  - `/topic create <name> <channel> [threshold] [emoji]`: Creates a new topic configuration lane.
+  - `/topic set-channel <topic> <channel>`: Sets the target posting channel for a topic.
+  - `/topic set-threshold <topic> <threshold>`: Sets the posting score threshold for a topic.
+  - `/topic set-emoji <topic> <emoji>`: Sets or clears (using `clear`) the emoji prefix for a topic.
+  - `/topic disable <topic>`: Toggles the disabled/active state of a topic.
+- **`/source`**: Bot manager suite for managing RSS feed sources per topic.
+  - `/source list <topic>`: Lists all configured RSS sources for a topic.
+  - `/source add <topic> <name> <url> <trusted>`: Adds a new RSS source to a topic (and marks it trusted/untrusted).
+  - `/source remove <topic> <name>`: Removes an RSS source from a topic by its name.
 
 ---
 

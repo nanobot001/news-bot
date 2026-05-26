@@ -71,7 +71,7 @@ export async function pollNews(
     };
 
     const topicConfig = config.topics[topic];
-    if (!topicConfig) {
+    if (!topicConfig || topicConfig.disabled) {
       continue;
     }
     const sources = config.sources[topic] || [];

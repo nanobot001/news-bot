@@ -23,7 +23,9 @@ import {
   handleSourcesCommand,
   handleFavoritesCommand,
   handleUnfavoriteCommand,
-  handleAuditCommand
+  handleAuditCommand,
+  handleTopicCommand,
+  handleSourceCommand
 } from "./bot/commands.js";
 import { getFavorites } from "./storage/articleRepo.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
@@ -117,17 +119,26 @@ async function main(): Promise<void> {
             await interaction.respond([]);
           } catch (_) {}
         }
-      } else if (interaction.commandName === "audit") {
+      } else if (
+        interaction.commandName === "audit" ||
+        interaction.commandName === "topic" ||
+        interaction.commandName === "source"
+      ) {
         try {
-          const focusedValue = interaction.options.getFocused().toLowerCase();
-          const configuredTopics = Object.keys(appConfig.topics);
-          const choices = configuredTopics
-            .filter(topic => topic.toLowerCase().includes(focusedValue))
-            .map(topic => ({ name: topic, value: topic }))
-            .slice(0, 25);
-          await interaction.respond(choices);
+          const focusedOption = interaction.options.getFocused(true);
+          if (focusedOption.name === "topic") {
+            const focusedValue = focusedOption.value.toLowerCase();
+            const configuredTopics = Object.keys(appConfig.topics);
+            const choices = configuredTopics
+              .filter(topic => topic.toLowerCase().includes(focusedValue))
+              .map(topic => ({ name: topic, value: topic }))
+              .slice(0, 25);
+            await interaction.respond(choices);
+          } else {
+            await interaction.respond([]);
+          }
         } catch (error) {
-          console.error("[Autocomplete] Error serving audit choices:", error);
+          console.error(`[Autocomplete] Error serving ${interaction.commandName} choices:`, error);
           try {
             await interaction.respond([]);
           } catch (_) {}
@@ -164,6 +175,10 @@ async function main(): Promise<void> {
       await handleUnfavoriteCommand(interaction, appConfig);
     } else if (interaction.commandName === "audit") {
       await handleAuditCommand(interaction, appConfig);
+    } else if (interaction.commandName === "topic") {
+      await handleTopicCommand(interaction, appConfig);
+    } else if (interaction.commandName === "source") {
+      await handleSourceCommand(interaction, appConfig);
     }
   });
 
