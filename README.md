@@ -125,7 +125,7 @@ The scorer handles this by separating:
 - Location keywords: the article is relevant to a place.
 - Blocked terms: the article should be suppressed or heavily penalized.
 
-Location keyword points are only awarded if the article already has core topic context or comes from a trusted source. A location-only match from an untrusted feed is recorded as ignored and receives no location score.
+Location keyword points are only awarded if the article already has core topic context. A location-only match is recorded as ignored and receives no location score.
 
 ### Sources
 
@@ -322,8 +322,8 @@ Article scores are deterministic:
 
 - Title core keyword match: `+20`
 - Summary core keyword match: `+10`
-- Title location keyword match: `+20`, only with core topic context or trusted source
-- Summary location keyword match: `+10`, only with core topic context or trusted source
+- Title location keyword match: `+20`, only with core topic context
+- Summary location keyword match: `+10`, only with core topic context
 - Trusted source bonus: `+15`
 - Blocked term match: `-100`
 - Missing URL: `-10`

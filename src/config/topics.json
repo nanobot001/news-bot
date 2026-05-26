@@ -191,7 +191,8 @@
       "pick'em",
       "pick-em",
       "dfs",
-      "ats"
+      "ats",
+      "tempo"
     ],
     "postThreshold": 20,
     "emoji": "<:raptors:1508144470539894973>"
@@ -219,7 +220,8 @@
       "brunson",
       "cavs",
       "harden",
-      "kd, durant"
+      "kd, durant",
+      "wemby, wembanyama"
     ],
     "blockedTerms": [
       "sponsored",
@@ -288,7 +290,8 @@
       "pick-em",
       "dfs",
       "ats",
-      "live"
+      "live",
+      "ncaa"
     ],
     "postThreshold": 20,
     "emoji": "<:nba:1508144469835255951>"
@@ -350,7 +353,43 @@
       "foodie",
       "foodies",
       "eats",
-      "dining"
+      "dining",
+      "food",
+      "drink",
+      "drinks",
+      "bar",
+      "bars",
+      "pub",
+      "pubs",
+      "brewery",
+      "breweries",
+      "menu",
+      "menus",
+      "chef",
+      "chefs",
+      "dish",
+      "dishes",
+      "cuisine",
+      "cuisines",
+      "cook",
+      "cooking",
+      "diner",
+      "diners",
+      "ramen",
+      "sushi",
+      "pizza",
+      "burger",
+      "burgers",
+      "taco",
+      "tacos",
+      "pasta",
+      "dessert",
+      "desserts",
+      "bbq",
+      "cocktail",
+      "cocktails",
+      "wine",
+      "beer"
     ],
     "locationKeywords": [
       "mississauga",
@@ -374,7 +413,24 @@
       "cabbagetown",
       "junction",
       "liberty village",
-      "distillery district"
+      "distillery district",
+      "chinatown",
+      "koreatown",
+      "little italy",
+      "little portugal",
+      "greektown",
+      "baldwin village",
+      "bloordale",
+      "bloor west village",
+      "corktown",
+      "st. lawrence market",
+      "roncy",
+      "high park",
+      "beaches",
+      "the beaches",
+      "woodbine",
+      "east york",
+      "york"
     ],
     "blockedTerms": [
       "sponsored",
@@ -399,7 +455,7 @@
       "raptors",
       "maple leafs"
     ],
-    "postThreshold": 30,
+    "postThreshold": 20,
     "emoji": "<:torontofoodie3:1508674647711940702>",
     "disabled": false
   }

@@ -319,7 +319,7 @@ test("Scoring and Filtering Logic Suite", async (t) => {
     assert.ok(resultWithKeyword.reasons.some((r) => r.includes("Title matched keyword")));
     assert.ok(resultWithKeyword.reasons.some((r) => r.includes("Title matched location keyword")));
 
-    // Case 3: Location match (no core keyword) + trusted source
+    // Case 3: Location match (no core keyword) + trusted source -> location ignored
     const resultWithTrusted = scoreArticle({
       event: { ...dummyEvent, title: "Something happened in Brampton", summary: "" },
       keywords: ["restaurant", "food"],
@@ -327,9 +327,10 @@ test("Scoring and Filtering Logic Suite", async (t) => {
       blockedTerms: [],
       trustedSource: true,
     });
-    assert.equal(resultWithTrusted.score, 35);
+    assert.equal(resultWithTrusted.score, 15); // Trusted source bonus only (+15)
     assert.ok(resultWithTrusted.reasons.some((r) => r.includes("Trusted source bonus")));
-    assert.ok(resultWithTrusted.reasons.some((r) => r.includes("Title matched location keyword")));
+    assert.ok(resultWithTrusted.reasons.some((r) => r.includes("ignored due to lack of core topic context")));
+    assert.ok(!resultWithTrusted.reasons.some((r) => r.includes("Title matched location keyword")));
   });
 
 });

@@ -251,17 +251,12 @@
     {
       "name": "Toronto Food Blog",
       "url": "https://torontofoodblog.com/feed/",
-      "trusted": false
+      "trusted": true
     },
     {
       "name": "View the Vibe",
       "url": "https://viewthevibe.com/feed/",
-      "trusted": false
-    },
-    {
-      "name": "Toronto Cafe Blog",
-      "url": "https://torontocafeandfood.blogspot.com/feeds/posts/default?alt=rss",
-      "trusted": false
+      "trusted": true
     },
     {
       "name": "Daily Hive Toronto",
@@ -271,7 +266,7 @@
     {
       "name": "Reddit FoodToronto",
       "url": "https://www.reddit.com/r/FoodToronto/.rss",
-      "trusted": false
+      "trusted": true
     },
     {
       "name": "Insauga",
@@ -284,18 +279,143 @@
       "trusted": false
     },
     {
+      "name": "Google News - blogTO Food",
+      "url": "https://news.google.com/rss/search?q=site%3Ablogto.com+(restaurant+OR+opening+OR+closing+OR+eats+OR+food+OR+cafe)&hl=en-CA&gl=CA&ceid=CA:en",
+      "trusted": true
+    },
+    {
+      "name": "Google News - Toronto Star Food",
+      "url": "https://news.google.com/rss/search?q=site%3Athestar.com+(restaurant+OR+dining+OR+eats+OR+food+OR+cafe)&hl=en-CA&gl=CA&ceid=CA:en",
+      "trusted": true
+    },
+    {
+      "name": "Google News - General Toronto Restaurant News",
+      "url": "https://news.google.com/rss/search?q=toronto+(restaurant+OR+eatery+OR+dining)+(opening+OR+closing+OR+new+OR+michelin)&hl=en-CA&gl=CA&ceid=CA:en",
+      "trusted": false
+    },
+    {
       "name": "Matty Matheson YouTube",
       "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCpqH8-BBNTsluhcOzFKWLuw",
-      "trusted": false
+      "trusted": true
     },
     {
       "name": "Glen & Friends Cooking YouTube",
       "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsU15yvILBmnHPeAf4SFVaQ",
-      "trusted": false
+      "trusted": true
     },
     {
       "name": "InstaNoodls YouTube",
       "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCs0blMflhhRf9X0I_jtNvCg",
+      "trusted": true
+    },
+    {
+      "name": "HongKonger in Toronto YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCDYgTnWK6sl-YZEDM4jv7fQ",
+      "trusted": true
+    },
+    {
+      "name": "PhilsFoodReview YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCw_yc4pUYR1sLiZAO8bSeuA",
+      "trusted": true
+    },
+    {
+      "name": "UA Eats YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCqXXxQaZhsOB4qaXhaIIX7Q",
+      "trusted": true
+    },
+    {
+      "name": "blogTO YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCc6RY7ZDvJIl_MTdyX7QP3w",
+      "trusted": true
+    },
+    {
+      "name": "Travelling Foodie YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCGqG1RI-3ktA0BkzJH5N0RA",
+      "trusted": true
+    },
+    {
+      "name": "TorontoFoodGuide YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCm2s72Rl0Cv9vMslN5S7ZCw",
+      "trusted": true
+    },
+    {
+      "name": "eatingwithwinnie YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCu7h18FPcnR-doMCslE4ApQ",
+      "trusted": true
+    },
+    {
+      "name": "Toronto Our City YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCLqTzLKkaOeSsMcyDrLsqnw",
+      "trusted": true
+    },
+    {
+      "name": "torontofood YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UC815btIVaeo3siioUe9seBQ",
+      "trusted": true
+    },
+    {
+      "name": "Johnny Strides YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCF-sE--qSw-5fTsLBhnvDRA",
+      "trusted": true
+    },
+    {
+      "name": "The Ken Continuum YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCa4CuTgIfQbLBmQVM0cuCcw",
+      "trusted": true
+    },
+    {
+      "name": "Toronto Walk & Drive YouTube",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCoyWV29tYZNn8AxirSXRGyQ",
+      "trusted": true
+    },
+    {
+      "name": "Reddit Markham",
+      "url": "https://www.reddit.com/r/Markham/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Reddit RichmondHill",
+      "url": "https://www.reddit.com/r/RichmondHill/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Reddit Scarborough",
+      "url": "https://www.reddit.com/r/Scarborough/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Reddit Etobicoke",
+      "url": "https://www.reddit.com/r/Etobicoke/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Reddit Mississauga",
+      "url": "https://www.reddit.com/r/mississauga/.rss",
+      "trusted": false
+    },
+    {
+      "name": "Google News - YorkRegion Food",
+      "url": "https://news.google.com/rss/search?q=site%3Ayorkregion.com+(restaurant+OR+food+OR+dining+OR+cafe)&hl=en-CA&gl=CA&ceid=CA:en",
+      "trusted": true
+    },
+    {
+      "name": "Google News - Markham Local News",
+      "url": "https://news.google.com/rss/search?q=Markham+news&hl=en-CA&gl=CA&ceid=CA:en",
+      "trusted": false
+    },
+    {
+      "name": "Google News - Richmond Hill Local News",
+      "url": "https://news.google.com/rss/search?q=%22Richmond+Hill%22+news&hl=en-CA&gl=CA&ceid=CA:en",
+      "trusted": false
+    },
+    {
+      "name": "Google News - Scarborough Local News",
+      "url": "https://news.google.com/rss/search?q=Scarborough+news&hl=en-CA&gl=CA&ceid=CA:en",
+      "trusted": false
+    },
+    {
+      "name": "Google News - Etobicoke Local News",
+      "url": "https://news.google.com/rss/search?q=Etobicoke+news&hl=en-CA&gl=CA&ceid=CA:en",
       "trusted": false
     }
   ]

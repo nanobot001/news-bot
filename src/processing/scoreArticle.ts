@@ -52,7 +52,7 @@ export function scoreArticle(input: ScoreArticleInput): ScoreArticleResult {
     reasons.push(`Summary matched keyword ${joined} (+10)`);
   }
 
-  // 3. Location keyword matches (only applied if we have core keywords or a trusted source)
+  // 3. Location keyword matches (only applied if we have core keywords)
   if (locationKeywords && locationKeywords.length > 0) {
     const matchedTitleLocations = getMatchedTerms(event.title, locationKeywords);
     const matchedSummaryLocations = event.summary ? getMatchedTerms(event.summary, locationKeywords) : [];
@@ -60,7 +60,7 @@ export function scoreArticle(input: ScoreArticleInput): ScoreArticleResult {
     const summaryHasLocation = matchedSummaryLocations.length > 0;
 
     if (titleHasLocation || summaryHasLocation) {
-      if (hasCoreKeyword || trustedSource) {
+      if (hasCoreKeyword) {
         if (titleHasLocation) {
           score += 20;
           const joined = matchedTitleLocations.map((k) => `"${k}"`).join(", ");

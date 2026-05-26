@@ -1,5 +1,19 @@
 # Continue Here
 
+## 2026-05-26 (Toronto Eats Sources & Regional News Mass Expansion Complete)
+
+Current state:
+- Reviewed all 10 sources for `toronto-eats` using a custom validation script and removed defunct `Toronto Cafe Blog` feed.
+- Implemented robust exponential backoff retry logic and explicit `connection: close` headers in `src/ingestion/fetchFeeds.ts` to resolve CDN connection pool dropouts.
+- **Massively Expanded Sources**: Added 22 new feeds to `sources.json` to cover regional dining and community areas:
+  - **YouTube Food & Explore Channels** (`trusted: true`): Expanded to **13 highly-focused YouTube culinary/explore feeds** including *InstaNoodls* (`UCs0blMflhhRf9X0I_jtNvCg`), *HongKonger in Toronto* (`UCDYgTnWK6sl-YZEDM4jv7fQ`), *PhilsFoodReview* (`UCw_yc4pUYR1sLiZAO8bSeuA`), *UA Eats* (`UCqXXxQaZhsOB4qaXhaIIX7Q`), *blogTO YouTube* (`UCc6RY7ZDvJIl_MTdyX7QP3w`), *Travelling Foodie YouTube* (`UCGqG1RI-3ktA0BkzJH5N0RA`), *TorontoFoodGuide YouTube* (`UCm2s72Rl0Cv9vMslN5S7ZCw`), *eatingwithwinnie YouTube* (`UCu7h18FPcnR-doMCslE4ApQ`), *Toronto Our City YouTube* (`UCLqTzLKkaOeSsMcyDrLsqnw`), *torontofood YouTube* (`UC815btIVaeo3siioUe9seBQ`), *Johnny Strides YouTube* (`UCF-sE--qSw-5fTsLBhnvDRA`), *The Ken Continuum YouTube* (`UCa4CuTgIfQbLBmQVM0cuCcw`), and *Toronto Walk & Drive YouTube* (`UCoyWV29tYZNn8AxirSXRGyQ`).
+  - **Social Media (Subreddit RSS)** (`trusted: false`): Added `/r/Markham`, `/r/RichmondHill`, `/r/Scarborough`, `/r/Etobicoke`, and `/r/mississauga`.
+  - **Website & Google News Search Feeds**: Added *Google News - YorkRegion Food* (`trusted: true`) to scrape food updates off YorkRegion.com, and regional local news feeds for *Markham*, *Richmond Hill*, *Scarborough*, and *Etobicoke* (`trusted: false`).
+- Verified all 139 automated tests pass successfully, rebuilt the application, and successfully restarted the production `news-bot` PM2 service (now loaded with **82 total active sources**).
+
+Next step:
+- Start Block 2-6 (Advanced Trust Levels & Fine-Grained Rules) to implement priority source weightings and multipliers.
+
 ## 2026-05-26 (Negative Keyword Management Complete)
 
 Current state:
@@ -13,6 +27,7 @@ Current state:
 
 Next step:
 - Start Block 2-6 (Advanced Trust Levels & Fine-Grained Rules) to implement priority source weightings and multipliers.
+
 
 ## 2026-05-26 (Manual Article Removal & Feedback Loop Complete)
 
