@@ -6,11 +6,15 @@ import {
   type Client
 } from "discord.js";
 import { type AppConfig, reloadAppConfig, saveTopicsConfig, saveSourcesConfig } from "../config/loadConfig.js";
-import { getArticlesForTopic, getFavorites, deleteFavoriteById, getCurationLogs } from "../storage/articleRepo.js";
-import { pollNews } from "../jobs/pollNews.js";
+import { getArticlesForTopic, getFavorites, deleteFavoriteById, getCurationLogs, saveArticle } from "../storage/articleRepo.js";
+import { pollNews, classifySkipStatus } from "../jobs/pollNews.js";
 import { prisma } from "../storage/prismaClient.js";
-import { formatArticleStatus } from "../storage/articleStatus.js";
+import { formatArticleStatus, ARTICLE_STATUSES } from "../storage/articleStatus.js";
 import { isBotManager } from "./auth.js";
+import { scoreArticle } from "../processing/scoreArticle.js";
+import { filterArticle } from "../processing/filterArticle.js";
+import { formatArticleEmbed, postArticleToChannel } from "./postEmbed.js";
+import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
 
 export const pingCommand = new SlashCommandBuilder()
   .setName("ping")
@@ -23,6 +27,7 @@ export const testfeedCommand = new SlashCommandBuilder()
     option.setName("topic")
       .setDescription("The topic to test")
       .setRequired(true)
+      .setAutocomplete(true)
   );
 
 export const lastpostsCommand = new SlashCommandBuilder()
@@ -32,6 +37,7 @@ export const lastpostsCommand = new SlashCommandBuilder()
     option.setName("topic")
       .setDescription("The topic to retrieve")
       .setRequired(true)
+      .setAutocomplete(true)
   )
   .addStringOption(option =>
     option.setName("status")
@@ -59,6 +65,12 @@ export const refreshCommand = new SlashCommandBuilder()
     option.setName("topic")
       .setDescription("The specific topic to refresh (optional)")
       .setRequired(false)
+      .setAutocomplete(true)
+  )
+  .addIntegerOption(option =>
+    option.setName("hours")
+      .setDescription("Re-score and post unposted articles from the last N hours (optional)")
+      .setRequired(false)
   );
 
 export const statsCommand = new SlashCommandBuilder()
@@ -77,6 +89,7 @@ export const searchCommand = new SlashCommandBuilder()
     option.setName("topic")
       .setDescription("Restrict search to a specific topic (optional)")
       .setRequired(false)
+      .setAutocomplete(true)
   );
 
 export const topicsCommand = new SlashCommandBuilder()
@@ -90,6 +103,7 @@ export const sourcesCommand = new SlashCommandBuilder()
     option.setName("topic")
       .setDescription("Limit to a specific topic (optional)")
       .setRequired(false)
+      .setAutocomplete(true)
   );
 
 export const favoritesCommand = new SlashCommandBuilder()
@@ -99,6 +113,7 @@ export const favoritesCommand = new SlashCommandBuilder()
     option.setName("topic")
       .setDescription("Filter by a specific topic (optional)")
       .setRequired(false)
+      .setAutocomplete(true)
   )
   .addStringOption(option =>
     option.setName("query")
@@ -313,6 +328,69 @@ export const sourceCommand = new SlashCommandBuilder()
       )
   );
 
+export const keywordCommand = new SlashCommandBuilder()
+  .setName("keyword")
+  .setDescription("Manage topic keywords (Bot Manager only for add/remove)")
+  .addSubcommand(sub =>
+    sub.setName("view")
+      .setDescription("View keywords for a topic")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to view")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("add")
+      .setDescription("Add a keyword to a topic (Bot Manager only)")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to add a keyword to")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+      .addStringOption(option =>
+        option.setName("keyword")
+          .setDescription("The keyword to add")
+          .setRequired(true)
+      )
+      .addStringOption(option =>
+        option.setName("type")
+          .setDescription("Standard or Location keyword (default: standard)")
+          .setRequired(false)
+          .addChoices(
+            { name: "Standard", value: "standard" },
+            { name: "Location", value: "location" }
+          )
+      )
+  )
+  .addSubcommand(sub =>
+    sub.setName("remove")
+      .setDescription("Remove a keyword from a topic (Bot Manager only)")
+      .addStringOption(option =>
+        option.setName("topic")
+          .setDescription("The topic to remove a keyword from")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+      .addStringOption(option =>
+        option.setName("keyword")
+          .setDescription("The keyword to remove")
+          .setRequired(true)
+          .setAutocomplete(true)
+      )
+      .addStringOption(option =>
+        option.setName("type")
+          .setDescription("Standard or Location keyword (default: standard)")
+          .setRequired(false)
+          .addChoices(
+            { name: "Standard", value: "standard" },
+            { name: "Location", value: "location" }
+          )
+      )
+  );
+
 export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
   return [
     pingCommand.toJSON(),
@@ -328,7 +406,8 @@ export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicatio
     unfavoriteCommand.toJSON(),
     auditCommand.toJSON(),
     topicCommand.toJSON(),
-    sourceCommand.toJSON()
+    sourceCommand.toJSON(),
+    keywordCommand.toJSON()
   ];
 }
 
@@ -497,6 +576,31 @@ export async function handleRefreshCommand(
   appConfig: AppConfig
 ): Promise<void> {
   const topic = interaction.options.getString("topic");
+  const hours = interaction.options.getInteger("hours");
+
+  if (hours !== null) {
+    if (!topic) {
+      await interaction.reply({
+        content: "❌ **Error:** You must specify a `topic` when using the `hours` option.",
+        ephemeral: true
+      });
+      return;
+    }
+    if (hours <= 0) {
+      await interaction.reply({
+        content: "❌ **Error:** `hours` must be a positive integer.",
+        ephemeral: true
+      });
+      return;
+    }
+    if (hours > 72) {
+      await interaction.reply({
+        content: "❌ **Error:** The lookback window cannot exceed 72 hours.",
+        ephemeral: true
+      });
+      return;
+    }
+  }
 
   if (topic && !appConfig.topics[topic]) {
     const configured = Object.keys(appConfig.topics).join(", ");
@@ -510,34 +614,133 @@ export async function handleRefreshCommand(
   try {
     await interaction.deferReply({ ephemeral: true });
 
-    const errorsList: Array<{ topic: string; source: string; message: string }> = [];
-    const countsMap = await pollNews(client, appConfig, errorsList, topic ?? undefined, false);
-
-    let responseText = `**Feed Refresh Complete**\n\n`;
-    let totalNew = 0;
-    let totalPosted = 0;
-
-    for (const [t, counts] of Object.entries(countsMap)) {
-      responseText += `- **${t}**: Checked ${counts.checked} | New ${counts.newItems} | Posted ${counts.posted}\n`;
-      totalNew += counts.newItems;
-      totalPosted += counts.posted;
-    }
-
-    responseText += `\nTotal: Ingested ${totalNew} new articles, posted ${totalPosted} to Discord.\n`;
-
-    if (errorsList.length > 0) {
-      responseText += `\n**Errors encountered during check:**\n`;
-      for (const err of errorsList) {
-        const errorLine = `- Topic *${err.topic}*, Source *${err.source}*: ${err.message}\n`;
-        if (responseText.length + errorLine.length > 1950) {
-          responseText += `\n*...and ${errorsList.length - errorsList.indexOf(err)} more errors (truncated).*`;
-          break;
+    if (hours !== null && topic) {
+      // Re-score database-driven refresh
+      const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+      const articles = await prisma.article.findMany({
+        where: {
+          topic,
+          firstSeenAt: { gte: cutoff }
         }
-        responseText += errorLine;
-      }
-    }
+      });
 
-    await interaction.editReply({ content: responseText });
+      let checked = 0;
+      let alreadyPosted = 0;
+      let stillSkipped = 0;
+      let postedNow = 0;
+
+      const topicConfig = appConfig.topics[topic];
+
+      for (const article of articles) {
+        checked++;
+        if (article.postedAt !== null || article.status === "POSTED") {
+          alreadyPosted++;
+          continue;
+        }
+
+        // Reconstruct event
+        let raw: any = null;
+        let summary: string | undefined;
+        if (article.rawJson) {
+          try {
+            raw = JSON.parse(article.rawJson);
+            summary = raw.contentSnippet ?? raw.content ?? undefined;
+          } catch (_) {}
+        }
+
+        const event: NormalizedEvent = {
+          id: article.id,
+          type: "news.article",
+          topic: article.topic,
+          title: article.title,
+          url: article.url ?? "",
+          sourceName: article.source,
+          publishedAt: article.publishedAt ? article.publishedAt.toISOString() : undefined,
+          summary,
+          raw
+        };
+
+        const sources = appConfig.sources[topic] || [];
+        const sourceConfig = sources.find(s => s.name.toLowerCase() === article.source.toLowerCase());
+        const trustedSource = sourceConfig ? sourceConfig.trusted : false;
+
+        const scoringResult = scoreArticle({
+          event,
+          keywords: topicConfig.keywords,
+          locationKeywords: topicConfig.locationKeywords || [],
+          blockedTerms: topicConfig.blockedTerms || [],
+          trustedSource
+        });
+
+        const filteringResult = filterArticle({
+          score: scoringResult.score,
+          threshold: topicConfig.postThreshold,
+          isDuplicate: false
+        });
+
+        if (filteringResult.shouldPost) {
+          postedNow++;
+          const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji });
+          const message = await postArticleToChannel(client, topicConfig.channelId, embed);
+          await saveArticle(
+            event,
+            scoringResult.score,
+            new Date(),
+            "POSTED",
+            undefined,
+            message?.id,
+            message?.channelId
+          );
+        } else {
+          stillSkipped++;
+          await saveArticle(
+            event,
+            scoringResult.score,
+            null,
+            classifySkipStatus(filteringResult.reasons),
+            filteringResult.reasons.join("; ")
+          );
+        }
+      }
+
+      const responseText = `**Historical Rescore Complete (Topic: ${topic}, Window: ${hours}h)**\n\n` +
+        `- **Articles Checked:** ${checked}\n` +
+        `- **Already Posted:** ${alreadyPosted}\n` +
+        `- **Newly Posted:** ${postedNow}\n` +
+        `- **Still Skipped:** ${stillSkipped}\n`;
+
+      await interaction.editReply({ content: responseText });
+    } else {
+      // Standard polling live refresh
+      const errorsList: Array<{ topic: string; source: string; message: string }> = [];
+      const countsMap = await pollNews(client, appConfig, errorsList, topic ?? undefined, false);
+
+      let responseText = `**Feed Refresh Complete**\n\n`;
+      let totalNew = 0;
+      let totalPosted = 0;
+
+      for (const [t, counts] of Object.entries(countsMap)) {
+        responseText += `- **${t}**: Checked ${counts.checked} | New ${counts.newItems} | Posted ${counts.posted}\n`;
+        totalNew += counts.newItems;
+        totalPosted += counts.posted;
+      }
+
+      responseText += `\nTotal: Ingested ${totalNew} new articles, posted ${totalPosted} to Discord.\n`;
+
+      if (errorsList.length > 0) {
+        responseText += `\n**Errors encountered during check:**\n`;
+        for (const err of errorsList) {
+          const errorLine = `- Topic *${err.topic}*, Source *${err.source}*: ${err.message}\n`;
+          if (responseText.length + errorLine.length > 1950) {
+            responseText += `\n*...and ${errorsList.length - errorsList.indexOf(err)} more errors (truncated).*`;
+            break;
+          }
+          responseText += errorLine;
+        }
+      }
+
+      await interaction.editReply({ content: responseText });
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     await interaction.editReply({
@@ -1387,6 +1590,191 @@ export async function handleSourceCommand(
     } catch (err: any) {
       await interaction.editReply({
         content: `Failed to remove source: ${err.message}`
+      });
+    }
+    return;
+  }
+}
+
+export async function handleKeywordCommand(
+  interaction: ChatInputCommandInteraction,
+  appConfig: AppConfig
+): Promise<void> {
+  const subcommand = interaction.options.getSubcommand();
+  const topic = interaction.options.getString("topic", true);
+  const topicConfig = appConfig.topics[topic];
+
+  if (!topicConfig) {
+    const configured = Object.keys(appConfig.topics).join(", ");
+    await interaction.reply({
+      content: `Unknown topic: "${topic}". Configured topics are: ${configured}`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (subcommand === "view") {
+    const keywords = topicConfig.keywords || [];
+    const locationKeywords = topicConfig.locationKeywords || [];
+
+    let responseText = `### Keywords for Topic Lane: **${topic}**\n`;
+    
+    let standardList = keywords.map(k => `\`${k}\``).join(", ") || "*None*";
+    let locationList = locationKeywords.map(k => `\`${k}\``).join(", ") || "*None*";
+
+    let line1 = `- **Standard Keywords (${keywords.length}):** ${standardList}\n`;
+    let line2 = `- **Location Keywords (${locationKeywords.length}):** ${locationList}\n`;
+
+    if (responseText.length + line1.length + line2.length > 1950) {
+      await interaction.reply({ content: `Keywords list for **${topic}** is too long. Chunking response...`, ephemeral: true });
+      
+      let standardChunks: string[] = [];
+      let currentChunk = `**Standard Keywords for ${topic} (${keywords.length}):**\n`;
+      for (const k of keywords) {
+        const item = `\`${k}\`, `;
+        if (currentChunk.length + item.length > 1900) {
+          standardChunks.push(currentChunk);
+          currentChunk = ``;
+        }
+        currentChunk += item;
+      }
+      if (currentChunk) standardChunks.push(currentChunk);
+
+      for (const chunk of standardChunks) {
+        await interaction.followUp({ content: chunk, ephemeral: true });
+      }
+
+      if (locationKeywords.length > 0) {
+        let locationChunks: string[] = [];
+        let curChunk = `**Location Keywords for ${topic} (${locationKeywords.length}):**\n`;
+        for (const k of locationKeywords) {
+          const item = `\`${k}\`, `;
+          if (curChunk.length + item.length > 1900) {
+            locationChunks.push(curChunk);
+            curChunk = ``;
+          }
+          curChunk += item;
+        }
+        if (curChunk) locationChunks.push(curChunk);
+
+        for (const chunk of locationChunks) {
+          await interaction.followUp({ content: chunk, ephemeral: true });
+        }
+      }
+    } else {
+      await interaction.reply({
+        content: responseText + line1 + line2,
+        ephemeral: true
+      });
+    }
+    return;
+  }
+
+  // Auth gate for add / remove
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const keywordRaw = interaction.options.getString("keyword", true);
+  const keyword = keywordRaw.trim().toLowerCase();
+  const type = interaction.options.getString("type") || "standard";
+
+  if (keyword.length === 0) {
+    await interaction.reply({
+      content: "❌ **Error:** Keyword cannot be empty or whitespace only.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (subcommand === "add") {
+    const standardExists = topicConfig.keywords.includes(keyword);
+    const locationExists = (topicConfig.locationKeywords || []).includes(keyword);
+
+    if (standardExists || locationExists) {
+      const typeLabel = standardExists ? "standard" : "location";
+      await interaction.reply({
+        content: `❌ **Error:** The keyword \`${keyword}\` already exists as a ${typeLabel} keyword for topic **${topic}**.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedTopics = { ...appConfig.topics };
+      const currentConfig = { ...updatedTopics[topic] };
+
+      if (type === "standard") {
+        currentConfig.keywords = [...currentConfig.keywords, keyword];
+      } else {
+        currentConfig.locationKeywords = [...(currentConfig.locationKeywords || []), keyword];
+      }
+
+      updatedTopics[topic] = currentConfig;
+
+      await saveTopicsConfig(updatedTopics);
+      await reloadAppConfig(appConfig);
+
+      console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} added keyword "${keyword}" (type: ${type}) to topic "${topic}"`);
+
+      await interaction.editReply({
+        content: `✅ Successfully added **${type}** keyword \`${keyword}\` to topic **${topic}**.`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `❌ **Error:** Failed to add keyword: ${err.message}`
+      });
+    }
+    return;
+  }
+
+  if (subcommand === "remove") {
+    let exists = false;
+    if (type === "standard") {
+      exists = topicConfig.keywords.includes(keyword);
+    } else {
+      exists = (topicConfig.locationKeywords || []).includes(keyword);
+    }
+
+    if (!exists) {
+      await interaction.reply({
+        content: `❌ **Error:** The keyword \`${keyword}\` does not exist as a **${type}** keyword for topic **${topic}**.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    try {
+      await interaction.deferReply({ ephemeral: true });
+
+      const updatedTopics = { ...appConfig.topics };
+      const currentConfig = { ...updatedTopics[topic] };
+
+      if (type === "standard") {
+        currentConfig.keywords = currentConfig.keywords.filter(k => k !== keyword);
+      } else {
+        currentConfig.locationKeywords = (currentConfig.locationKeywords || []).filter(k => k !== keyword);
+      }
+
+      updatedTopics[topic] = currentConfig;
+
+      await saveTopicsConfig(updatedTopics);
+      await reloadAppConfig(appConfig);
+
+      console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} removed keyword "${keyword}" (type: ${type}) from topic "${topic}"`);
+
+      await interaction.editReply({
+        content: `✅ Successfully removed **${type}** keyword \`${keyword}\` from topic **${topic}**.`
+      });
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `❌ **Error:** Failed to remove keyword: ${err.message}`
       });
     }
     return;

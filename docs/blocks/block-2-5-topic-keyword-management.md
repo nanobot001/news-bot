@@ -67,6 +67,18 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
 
 - Run typecheck and automated tests.
 - In a development Discord server, inspect keywords for one topic.
+- Duplicate additions and missing removals return clear messages without corrupting config.
+- Changes survive bot restarts because `topics.json` is updated.
+- `/refresh topic:<topic> hours:<n>` re-scores recent ingested articles for that topic using the current keyword config.
+- `/refresh topic:<topic> hours:<n>` reports already-posted articles separately and does not repost them.
+- Previously skipped/unposted articles that now meet threshold are posted and recorded with updated status.
+- Omitting `hours` from `/refresh` keeps the existing live polling behavior unchanged.
+- Automated tests cover keyword normalization, duplicate handling, missing keyword removal, config persistence, command authorization, refresh rescore filtering, already-posted reporting, and unchanged live refresh behavior.
+
+## Verification
+
+- Run typecheck and automated tests.
+- In a development Discord server, inspect keywords for one topic.
 - Add a test keyword, run `/keyword view <topic>`, and verify it appears.
 - Run `/testfeed <topic>` against an article containing the new keyword and verify the scoring reflects it.
 - Run `/refresh topic:<topic> hours:24` and verify recent skipped/unposted items are re-scored with the new keyword.
@@ -75,4 +87,4 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
 
 ## Status
 
-Pending.
+Completed.

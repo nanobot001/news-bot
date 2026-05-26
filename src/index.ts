@@ -25,7 +25,8 @@ import {
   handleUnfavoriteCommand,
   handleAuditCommand,
   handleTopicCommand,
-  handleSourceCommand
+  handleSourceCommand,
+  handleKeywordCommand
 } from "./bot/commands.js";
 import { getFavorites } from "./storage/articleRepo.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
@@ -119,11 +120,7 @@ async function main(): Promise<void> {
             await interaction.respond([]);
           } catch (_) {}
         }
-      } else if (
-        interaction.commandName === "audit" ||
-        interaction.commandName === "topic" ||
-        interaction.commandName === "source"
-      ) {
+      } else {
         try {
           const focusedOption = interaction.options.getFocused(true);
           if (focusedOption.name === "topic") {
@@ -134,11 +131,26 @@ async function main(): Promise<void> {
               .map(topic => ({ name: topic, value: topic }))
               .slice(0, 25);
             await interaction.respond(choices);
+          } else if (focusedOption.name === "keyword" && interaction.commandName === "keyword") {
+            const topic = interaction.options.getString("topic") || "";
+            const type = interaction.options.getString("type") || "standard";
+            const topicConfig = appConfig.topics[topic];
+            if (topicConfig) {
+              const keywords = type === "standard" ? (topicConfig.keywords || []) : (topicConfig.locationKeywords || []);
+              const focusedValue = focusedOption.value.toLowerCase();
+              const choices = keywords
+                .filter(k => k.toLowerCase().includes(focusedValue))
+                .map(k => ({ name: k, value: k }))
+                .slice(0, 25);
+              await interaction.respond(choices);
+            } else {
+              await interaction.respond([]);
+            }
           } else {
             await interaction.respond([]);
           }
         } catch (error) {
-          console.error(`[Autocomplete] Error serving ${interaction.commandName} choices:`, error);
+          console.error(`[Autocomplete] Error serving autocomplete choices:`, error);
           try {
             await interaction.respond([]);
           } catch (_) {}
@@ -179,6 +191,8 @@ async function main(): Promise<void> {
       await handleTopicCommand(interaction, appConfig);
     } else if (interaction.commandName === "source") {
       await handleSourceCommand(interaction, appConfig);
+    } else if (interaction.commandName === "keyword") {
+      await handleKeywordCommand(interaction, appConfig);
     }
   });
 

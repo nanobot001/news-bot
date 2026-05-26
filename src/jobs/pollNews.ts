@@ -24,7 +24,7 @@ export type PollError = {
   message: string;
 };
 
-function classifySkipStatus(reasons: string[]): ArticleStatus {
+export function classifySkipStatus(reasons: string[]): ArticleStatus {
   if (reasons.some((reason) => reason.includes("exceeds max age"))) {
     return ARTICLE_STATUSES.SKIPPED_OLD;
   }

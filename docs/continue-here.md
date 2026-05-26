@@ -1,5 +1,22 @@
 # Continue Here
 
+## 2026-05-26 (Topic Keyword Management & Rescoring Complete)
+
+Current state:
+- Completed Block 2-5 (Topic Keyword Management & Rescoring).
+- Implemented `/keyword` slash command supporting `view`, `add`, and `remove` subcommands for standard and location keywords.
+- Implemented autocomplete logic for topic parameters across all relevant slash commands.
+- Extended `/refresh` with an optional `hours` parameter (up to 72 hours) to support time-bound article rescoring, updating their post status, and outputting an evaluation report.
+- Fixed bot registration test cases to support 15 commands and added mock `getInteger` to refresh mock interactions.
+- Verified all 130 tests pass successfully.
+
+Next step:
+- Start Block 2-6 (Advanced Trust Levels & Fine-Grained Rules) to support multi-tier source trust levels, priority weighting, and source-level custom scoring multipliers.
+
+Do-not-forget checks:
+- Keep the tier configurations schema-validated.
+- Ensure bypass configurations for Tier 1 sources are respected safely in polling and manual refresh runs.
+
 ## 2026-05-26 (Location-Aware Keyword Scoring & Command Control Complete)
 
 Current state:
