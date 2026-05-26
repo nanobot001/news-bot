@@ -26,6 +26,7 @@ model Article {
   discordMessageId String?
   discordChannelId String?
   userFavorites UserFavorite[]
+  emailForwards EmailForward[]
 
   @@id([id, topic])
   @@index([topic])
@@ -51,4 +52,23 @@ model UserFavorite {
   @@index([userId])
   @@index([savedAt])
 }
+
+model EmailForward {
+  id               String   @id @default(uuid())
+  userId           String   // Discord User ID
+  articleId        String
+  articleTopic     String
+  article          Article  @relation(fields: [articleId, articleTopic], references: [id, topic], onDelete: Cascade)
+  discordChannelId String
+  discordMessageId String
+  recipientEmail   String
+  status           String   // "SUCCESS", "FAILED", "PENDING"
+  error            String?
+  createdAt        DateTime @default(now())
+
+  @@unique([userId, articleId, articleTopic])
+  @@index([userId])
+  @@index([createdAt])
+}
+
 

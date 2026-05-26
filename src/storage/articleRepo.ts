@@ -1,4 +1,4 @@
-import type { Article, UserFavorite } from "@prisma/client";
+import type { Article, UserFavorite, EmailForward } from "@prisma/client";
 import { prisma } from "./prismaClient.js";
 
 import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
@@ -385,6 +385,67 @@ export async function deleteFavoriteById(
     return null;
   }
 }
+
+/**
+ * Persists an email forwarding attempt record (upserts to support updates/retries).
+ */
+export async function saveEmailForward(params: {
+  userId: string;
+  articleId: string;
+  articleTopic: string;
+  channelId: string;
+  messageId: string;
+  recipientEmail: string;
+  status: string;
+  error?: string | null;
+}): Promise<EmailForward> {
+  return prisma.emailForward.upsert({
+    where: {
+      userId_articleId_articleTopic: {
+        userId: params.userId,
+        articleId: params.articleId,
+        articleTopic: params.articleTopic,
+      },
+    },
+    update: {
+      discordChannelId: params.channelId,
+      discordMessageId: params.messageId,
+      recipientEmail: params.recipientEmail,
+      status: params.status,
+      error: params.error ?? null,
+    },
+    create: {
+      userId: params.userId,
+      articleId: params.articleId,
+      articleTopic: params.articleTopic,
+      discordChannelId: params.channelId,
+      discordMessageId: params.messageId,
+      recipientEmail: params.recipientEmail,
+      status: params.status,
+      error: params.error ?? null,
+    },
+  });
+}
+
+/**
+ * Retrieves a single email forward attempt record by its composite unique key.
+ */
+export async function getEmailForward(
+  userId: string,
+  articleId: string,
+  articleTopic: string
+): Promise<EmailForward | null> {
+  return prisma.emailForward.findUnique({
+    where: {
+      userId_articleId_articleTopic: {
+        userId,
+        articleId,
+        articleTopic,
+      },
+    },
+  });
+}
+
 
 
 

@@ -1,5 +1,52 @@
 # Continue Here
 
+## 2026-05-26 (Reaction Email Forwarding Complete)
+
+Current state:
+- Completed Block 2-2 (Reaction Email Forwarding).
+- Added `EmailForward` database model to Prisma schema, ran `npx prisma db push`, and updated the Prisma Client.
+- Created `src/services/emailService.ts` for nodemailer SMTP transporter setup with zero-config Ethereal fallback in development mode.
+- Integrated forwarding handler in `src/bot/reactionListener.ts` to trigger on reaction. Added standard support for all common email/envelope emojis (like `📧`, `✉️`, `📩`, etc.) out of the box, with fallback option for custom config.
+- Implemented user direct message (DM) notifications containing success confirmation or Ethereal preview URLs, and error diagnostics if forwarding fails.
+- Created 11 new unit and integration tests covering database idempotency, mock nodemailer transport, custom emoji settings, and reaction-based event logic.
+- Verified all 85 unit tests pass successfully, typescript compiles cleanly, and the production build is ready.
+
+Next step:
+- Start Block 2-3 (Bot Manager Authorization & Curation Audit Logs) to implement manager identity gates, slash command permissions, and database logging for curation skips/filters.
+
+Do-not-forget checks:
+- Keep the manager gates aligned with Discord role IDs or user IDs, keeping commands strictly restricted to designated managers.
+
+## 2026-05-25 (Phase 2 Control Plane Reschedule)
+
+Current state:
+- Updated the Phase 2 block schedule to use bot manager terminology instead of broad admin language.
+- Renumbered planned Phase 2 blocks so topic/source management now comes before keyword management.
+- Added `docs/blocks/block-2-4-topic-source-management.md` for Discord-side `/topic` and `/source` management backed by `topics.json` and `sources.json`.
+- Working tree has uncommitted docs-only changes: renamed planned Phase 2 block files, updated `docs/blocks/README.md`, updated `docs/project-charter.md`, and this handoff.
+
+Next step:
+- Continue with Block 2-2 (Reaction Email Forwarding), then implement Block 2-3 (Bot Manager Authorization & Curation Audit Logs) before topic/source management.
+
+Do-not-forget checks:
+- Use Discord user IDs and role IDs for bot manager identity; do not add password or shared-secret slash-command flows.
+- Keep topic rename and hard delete out of the first topic/source management pass because stored articles and favorites are topic-scoped.
+- Verification was not run after the reschedule because the change only touched planning docs.
+
+## 2026-05-24 (Favorites Complete)
+
+Current state:
+- Completed Block 2-1 (Heart Reaction Favorites & Instapaper Sync) and its addendum (Two-Way Favorite Deletion).
+- Added `UserFavorite` model, `deleteFavorite` & `deleteFavoriteById` repo helpers, reaction removal listener, and `/unfavorite` command with autocomplete.
+- Verified all 74 unit tests pass cleanly, compiled successfully, merged the branch to `main`, pushed to GitHub, and restarted the production PM2 service (`news-bot`).
+
+Next step:
+- Begin Block 2-2 (Reaction Email Forwarding) to listen for email reaction emoji, compose the article content, and forward it via email.
+
+Do-not-forget checks:
+- Keep the database actions securely scoped to the invoking Discord user when managing personal favorites.
+- Test new listeners with mock events inside `tests/` before deploying.
+
 ## 2026-05-24
 
 Current state:

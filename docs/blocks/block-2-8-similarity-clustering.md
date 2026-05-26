@@ -1,4 +1,4 @@
-# Block 2-7: Similarity Clustering, Related Coverage & Updates
+# Block 2-8: Similarity Clustering, Related Coverage & Updates
 
 ## Goal
 

@@ -1,9 +1,21 @@
 import type { MessageReaction, User, Client } from "discord.js";
-import { getArticleByMessageId, saveFavorite, getFavorites, deleteFavorite } from "../storage/articleRepo.js";
+import {
+  getArticleByMessageId,
+  saveFavorite,
+  getFavorites,
+  deleteFavorite,
+  getEmailForward,
+  saveEmailForward
+} from "../storage/articleRepo.js";
 import { saveToInstapaper } from "../integration/instapaper.js";
+import { sendForward } from "../services/emailService.js";
 
 const HEART_EMOJIS = new Set([
   "❤️", "♥️", "💖", "💝", "💕", "💗", "💓", "🖤", "💜", "💙", "💚", "💛", "🧡", "🤍", "🤎", "❤️‍🔥", "❤️‍🩹"
+]);
+
+const MAIL_EMOJIS = new Set([
+  "📧", "✉️", "✉", "📩", "📨", "📬", "📮"
 ]);
 
 /**
@@ -34,9 +46,16 @@ export async function handleReactionAdd(reaction: MessageReaction, user: User): 
     }
   }
 
-  // Check if it is a heart emoji
   const emojiName = reaction.emoji.name;
-  if (!emojiName || !HEART_EMOJIS.has(emojiName)) {
+  if (!emojiName) {
+    return;
+  }
+
+  const forwardEmoji = process.env.FORWARD_EMAIL_EMOJI;
+  const isHeart = HEART_EMOJIS.has(emojiName);
+  const isForward = emojiName === forwardEmoji || MAIL_EMOJIS.has(emojiName);
+
+  if (!isHeart && !isForward) {
     return;
   }
 
@@ -50,6 +69,120 @@ export async function handleReactionAdd(reaction: MessageReaction, user: User): 
     return;
   }
 
+  // Handle Email Forwarding Reaction
+  if (isForward) {
+    try {
+      const recipientEmail = process.env.FORWARD_DESTINATION_EMAIL || "";
+      if (!recipientEmail) {
+        console.warn("[Reaction Listener] FORWARD_DESTINATION_EMAIL is not configured in env.");
+        try {
+          const dmChannel = await user.createDM();
+          await dmChannel.send(`⚠️ Could not forward article **${article.title}**: The email forwarding destination address is not configured.`);
+        } catch (dmErr) {
+          console.warn(`[Reaction Listener] Could not send DM to user ${user.username}:`, dmErr);
+        }
+        return;
+      }
+
+      // Check database for existing forward for idempotency
+      const existingForward = await getEmailForward(user.id, article.id, article.topic);
+      if (existingForward && existingForward.status === "SUCCESS") {
+        console.log(`[Reaction Listener] Email forward for "${article.title}" by ${user.username} already succeeded (idempotent).`);
+        return;
+      }
+
+      // Mark status as PENDING in DB
+      await saveEmailForward({
+        userId: user.id,
+        articleId: article.id,
+        articleTopic: article.topic,
+        channelId,
+        messageId,
+        recipientEmail,
+        status: "PENDING",
+      });
+
+      const guildId = reaction.message.guildId || "@me";
+      const messageLink = `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
+
+      const forwardResult = await sendForward({
+        articleUrl: article.url || "",
+        articleTitle: article.title,
+        source: article.source,
+        topic: article.topic,
+        discordMessageLink: messageLink,
+      });
+
+      if (forwardResult.success) {
+        await saveEmailForward({
+          userId: user.id,
+          articleId: article.id,
+          articleTopic: article.topic,
+          channelId,
+          messageId,
+          recipientEmail,
+          status: "SUCCESS",
+          error: null,
+        });
+
+        console.log(`[Reaction Listener] Email forward for article "${article.title}" by user ${user.username} succeeded.`);
+
+        // React with success emoji on original message
+        if (typeof reaction.message.react === "function") {
+          try {
+            await reaction.message.react("✅");
+          } catch (reactErr) {
+            console.warn("[Reaction Listener] Could not react with ✅ to message:", reactErr);
+          }
+        }
+
+        try {
+          const dmChannel = await user.createDM();
+          let feedbackMsg = `✅ Successfully forwarded article **${article.title}** to **${recipientEmail}**!`;
+          if (forwardResult.previewUrl) {
+            feedbackMsg += `\n📧 Preview URL: ${forwardResult.previewUrl}`;
+          }
+          await dmChannel.send(feedbackMsg);
+        } catch (dmErr) {
+          console.warn(`[Reaction Listener] Could not send DM feedback to user ${user.username}:`, dmErr);
+        }
+      } else {
+        await saveEmailForward({
+          userId: user.id,
+          articleId: article.id,
+          articleTopic: article.topic,
+          channelId,
+          messageId,
+          recipientEmail,
+          status: "FAILED",
+          error: forwardResult.error || "Unknown error",
+        });
+
+        console.error(`[Reaction Listener] Email forward for article "${article.title}" by user ${user.username} failed: ${forwardResult.error}`);
+
+        // React with failure emoji on original message
+        if (typeof reaction.message.react === "function") {
+          try {
+            await reaction.message.react("❌");
+          } catch (reactErr) {
+            console.warn("[Reaction Listener] Could not react with ❌ to message:", reactErr);
+          }
+        }
+
+        try {
+          const dmChannel = await user.createDM();
+          await dmChannel.send(`❌ Failed to forward article **${article.title}**: ${forwardResult.error}`);
+        } catch (dmErr) {
+          console.warn(`[Reaction Listener] Could not send DM feedback to user ${user.username}:`, dmErr);
+        }
+      }
+    } catch (error) {
+      console.error("[Reaction Listener] Error handling email forwarding:", error);
+    }
+    return;
+  }
+
+  // Handle Heart Curation Favorite Reaction
   try {
     // Check if user already favorited this article (for idempotency)
     const existing = await getFavorites(user.id, {
@@ -83,6 +216,7 @@ export async function handleReactionAdd(reaction: MessageReaction, user: User): 
     console.error("[Reaction Listener] Error handling favorite persistence:", error);
   }
 }
+
 
 /**
  * Handles incoming reaction removal events on bot-posted messages.

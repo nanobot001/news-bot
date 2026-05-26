@@ -60,4 +60,5 @@ Let a Discord user mark a posted article for email forwarding with a dedicated r
 
 ## Status
 
-Pending.
+Completed.
+

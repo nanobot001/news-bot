@@ -1,4 +1,4 @@
-# Block 2-4: Topic Keyword Inspection, Management & Refresh
+# Block 2-5: Topic Keyword Inspection, Management & Refresh
 
 ## Goal
 
@@ -15,8 +15,8 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
 - **Keyword Inspection:**
   - `/keyword view <topic>` shows the complete keyword list for a single topic.
   - Split long keyword lists across multiple ephemeral responses or compact embeds so Discord message limits are respected.
-- **Admin-Only Keyword Updates:**
-  - Restrict `/keyword add` and `/keyword remove` to admins.
+- **Bot-Manager Keyword Updates:**
+  - Restrict `/keyword add` and `/keyword remove` to bot managers.
   - Allow `/keyword view` for normal users unless later operator feedback requires locking it down.
   - Reuse the authorization helper from Block 2-3.
   - Normalize keyword casing and whitespace consistently.
@@ -42,7 +42,7 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
 
 ## Out Of Scope
 
-- Editing source feed URLs.
+- Editing source feed URLs, which belongs in Block 2-4.
 - Editing blocked terms.
 - Bulk keyword imports.
 - Web dashboard.
@@ -52,9 +52,9 @@ Make topic keyword tuning possible from Discord so the operator can inspect, add
 ## Acceptance Criteria
 
 - `/keyword view <topic>` shows the full keyword list for the requested topic.
-- Non-admin users cannot run `/keyword add` or `/keyword remove`.
-- Admin users can add a new keyword with `/keyword add <topic> <keyword>` and it immediately affects future scoring.
-- Admin users can remove an existing keyword with `/keyword remove <topic> <keyword>` and it immediately stops affecting future scoring.
+- Non-manager users cannot run `/keyword add` or `/keyword remove`.
+- Bot managers can add a new keyword with `/keyword add <topic> <keyword>` and it immediately affects future scoring.
+- Bot managers can remove an existing keyword with `/keyword remove <topic> <keyword>` and it immediately stops affecting future scoring.
 - Duplicate additions and missing removals return clear messages without corrupting config.
 - Changes survive bot restarts because `topics.json` is updated.
 - `/refresh topic:<topic> hours:<n>` re-scores recent ingested articles for that topic using the current keyword config.
