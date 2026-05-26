@@ -71,4 +71,21 @@ model EmailForward {
   @@index([createdAt])
 }
 
+model CurationLog {
+  id        String   @id @default(uuid())
+  title     String
+  url       String?
+  source    String
+  topic     String
+  status    String   // "POSTED", "SKIPPED_THRESHOLD", "SKIPPED_BLOCKED", "DEFERRED_COOLDOWN"
+  score     Int
+  breakdown String   // Stringified JSON array of reasons
+  createdAt DateTime @default(now())
+
+  @@index([topic])
+  @@index([status])
+  @@index([createdAt])
+}
+
+
 

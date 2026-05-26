@@ -446,6 +446,64 @@ export async function getEmailForward(
   });
 }
 
+/**
+ * Persists a new curation log entry.
+ */
+export async function saveCurationLog(params: {
+  title: string;
+  url?: string | null;
+  source: string;
+  topic: string;
+  status: string;
+  score: number;
+  breakdown: string[];
+}): Promise<any> {
+  return prisma.curationLog.create({
+    data: {
+      title: params.title,
+      url: params.url ?? null,
+      source: params.source,
+      topic: params.topic,
+      status: params.status,
+      score: params.score,
+      breakdown: JSON.stringify(params.breakdown),
+    },
+  });
+}
+
+/**
+ * Retrieves curation logs for a given topic with optional search query, status filter, and limit.
+ */
+export async function getCurationLogs(params: {
+  topic: string;
+  limit?: number;
+  query?: string;
+  status?: string;
+}): Promise<any[]> {
+  const where: any = {
+    topic: params.topic,
+  };
+
+  if (params.query) {
+    where.title = {
+      contains: params.query,
+    };
+  }
+
+  if (params.status) {
+    where.status = params.status;
+  }
+
+  return prisma.curationLog.findMany({
+    where,
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: params.limit ?? 10,
+  });
+}
+
+
 
 
 

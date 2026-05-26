@@ -22,7 +22,8 @@ import {
   handleTopicsCommand,
   handleSourcesCommand,
   handleFavoritesCommand,
-  handleUnfavoriteCommand
+  handleUnfavoriteCommand,
+  handleAuditCommand
 } from "./bot/commands.js";
 import { getFavorites } from "./storage/articleRepo.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
@@ -116,6 +117,21 @@ async function main(): Promise<void> {
             await interaction.respond([]);
           } catch (_) {}
         }
+      } else if (interaction.commandName === "audit") {
+        try {
+          const focusedValue = interaction.options.getFocused().toLowerCase();
+          const configuredTopics = Object.keys(appConfig.topics);
+          const choices = configuredTopics
+            .filter(topic => topic.toLowerCase().includes(focusedValue))
+            .map(topic => ({ name: topic, value: topic }))
+            .slice(0, 25);
+          await interaction.respond(choices);
+        } catch (error) {
+          console.error("[Autocomplete] Error serving audit choices:", error);
+          try {
+            await interaction.respond([]);
+          } catch (_) {}
+        }
       }
       return;
     }
@@ -146,6 +162,8 @@ async function main(): Promise<void> {
       await handleFavoritesCommand(interaction, appConfig);
     } else if (interaction.commandName === "unfavorite") {
       await handleUnfavoriteCommand(interaction, appConfig);
+    } else if (interaction.commandName === "audit") {
+      await handleAuditCommand(interaction, appConfig);
     }
   });
 

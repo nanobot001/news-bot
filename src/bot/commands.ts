@@ -1,14 +1,16 @@
 import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
+  AttachmentBuilder,
   type RESTPostAPIChatInputApplicationCommandsJSONBody,
   type Client
 } from "discord.js";
 import { type AppConfig, reloadAppConfig } from "../config/loadConfig.js";
-import { getArticlesForTopic, getFavorites, deleteFavoriteById } from "../storage/articleRepo.js";
+import { getArticlesForTopic, getFavorites, deleteFavoriteById, getCurationLogs } from "../storage/articleRepo.js";
 import { pollNews } from "../jobs/pollNews.js";
 import { prisma } from "../storage/prismaClient.js";
 import { formatArticleStatus } from "../storage/articleStatus.js";
+import { isBotManager } from "./auth.js";
 
 export const pingCommand = new SlashCommandBuilder()
   .setName("ping")
@@ -129,6 +131,37 @@ export const unfavoriteCommand = new SlashCommandBuilder()
       .setAutocomplete(true)
   );
 
+export const auditCommand = new SlashCommandBuilder()
+  .setName("audit")
+  .setDescription("View recent curation and evaluation logs for a specific topic.")
+  .addStringOption(option =>
+    option.setName("topic")
+      .setDescription("The topic to audit")
+      .setRequired(true)
+      .setAutocomplete(true)
+  )
+  .addIntegerOption(option =>
+    option.setName("limit")
+      .setDescription("Number of logs to retrieve (default: 10, max: 100)")
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName("query")
+      .setDescription("Search query for article title (optional)")
+      .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName("status")
+      .setDescription("Filter by curation status (optional)")
+      .setRequired(false)
+      .addChoices(
+        { name: "POSTED", value: "POSTED" },
+        { name: "SKIPPED_THRESHOLD", value: "SKIPPED_THRESHOLD" },
+        { name: "SKIPPED_BLOCKED", value: "SKIPPED_BLOCKED" },
+        { name: "DEFERRED_COOLDOWN", value: "DEFERRED_COOLDOWN" }
+      )
+  );
+
 export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
   return [
     pingCommand.toJSON(),
@@ -141,7 +174,8 @@ export function getCommandRegistrationPayloads(): RESTPostAPIChatInputApplicatio
     topicsCommand.toJSON(),
     sourcesCommand.toJSON(),
     favoritesCommand.toJSON(),
-    unfavoriteCommand.toJSON()
+    unfavoriteCommand.toJSON(),
+    auditCommand.toJSON()
   ];
 }
 
@@ -157,6 +191,14 @@ export async function handleTestfeedCommand(
   client: Client,
   appConfig: AppConfig
 ): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
   const topic = interaction.options.getString("topic", true);
 
   if (!appConfig.topics[topic]) {
@@ -272,6 +314,14 @@ export async function handleReloadconfigCommand(
   interaction: ChatInputCommandInteraction,
   appConfig: AppConfig
 ): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
   try {
     await interaction.deferReply({ ephemeral: true });
     await reloadAppConfig(appConfig);
@@ -673,4 +723,109 @@ export async function handleUnfavoriteCommand(
     });
   }
 }
+
+export async function handleAuditCommand(
+  interaction: ChatInputCommandInteraction,
+  appConfig: AppConfig
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const topic = interaction.options.getString("topic", true);
+  const limitInput = interaction.options.getInteger("limit");
+  const query = interaction.options.getString("query");
+  const status = interaction.options.getString("status");
+
+  const limit = limitInput ? Math.min(Math.max(limitInput, 1), 100) : 10;
+
+  if (!appConfig.topics[topic]) {
+    const configured = Object.keys(appConfig.topics).join(", ");
+    await interaction.reply({
+      content: `Unknown topic: "${topic}". Configured topics are: ${configured}`,
+      ephemeral: true
+    });
+    return;
+  }
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    const logs = await getCurationLogs({
+      topic,
+      limit,
+      query: query ?? undefined,
+      status: status ?? undefined
+    });
+
+    if (logs.length === 0) {
+      await interaction.editReply({
+        content: `No curation logs found for topic: "${topic}" matching filters.`
+      });
+      return;
+    }
+
+    let outputText = `**Curation Audit Logs for topic: "${topic}"** (showing ${logs.length} items):\n\n`;
+    let fileText = `=========================================\n`;
+    fileText += `CURATION AUDIT LOGS FOR TOPIC: ${topic.toUpperCase()}\n`;
+    fileText += `Generated: ${new Date().toISOString()}\n`;
+    fileText += `=========================================\n\n`;
+
+    for (let i = 0; i < logs.length; i++) {
+      const log = logs[i];
+      const timeStr = `<t:${Math.floor(log.createdAt.getTime() / 1000)}:R>`;
+      const formattedTime = log.createdAt.toISOString();
+      const scoreStr = `(Score: ${log.score})`;
+      const link = log.url ? `[${log.title}](${log.url})` : log.title;
+
+      let breakdownList: string[] = [];
+      try {
+        breakdownList = JSON.parse(log.breakdown);
+      } catch (_) {
+        breakdownList = [log.breakdown];
+      }
+
+      const statusPrefix = log.status === "POSTED" ? "✅ [POSTED]" : `❌ [${log.status}]`;
+      let line = `${i + 1}. ${statusPrefix} ${link} ${scoreStr} - Source: *${log.source}* - Evaluated ${timeStr}\n`;
+      for (const reason of breakdownList) {
+        line += `   • ${reason}\n`;
+      }
+      line += "\n";
+
+      fileText += `${i + 1}. [${log.status}] ${log.title}\n`;
+      fileText += `   Score: ${log.score}\n`;
+      fileText += `   Source: ${log.source}\n`;
+      fileText += `   URL: ${log.url ?? "None"}\n`;
+      fileText += `   Date: ${formattedTime}\n`;
+      fileText += `   Scoring Breakdown:\n`;
+      for (const reason of breakdownList) {
+        fileText += `     - ${reason}\n`;
+      }
+      fileText += `-----------------------------------------\n\n`;
+
+      outputText += line;
+    }
+
+    if (outputText.length > 1950 || limit > 15) {
+      const buffer = Buffer.from(fileText, "utf-8");
+      const attachment = new AttachmentBuilder(buffer, { name: `audit-log-${topic}.txt` });
+      await interaction.editReply({
+        content: `Audit log list is too long for a Discord message, or a large limit was requested. Attached is the full log text file for **${topic}** (${logs.length} entries).`,
+        files: [attachment]
+      });
+    } else {
+      await interaction.editReply({ content: outputText });
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    await interaction.editReply({
+      content: `Failed to retrieve curation logs: ${msg}`
+    });
+  }
+}
+
 

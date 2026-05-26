@@ -17,7 +17,7 @@
     "prisma:migrate": "prisma migrate dev",
     "test:storage": "node --import tsx --test tests/storage.test.ts",
     "test:bot": "node --import tsx --test tests/bot.test.ts",
-    "test:all": "node --import tsx --test --test-concurrency=1 tests/storage.test.ts tests/scoring.test.ts tests/bot.test.ts tests/polling.test.ts tests/favorites.test.ts tests/forwarding.test.ts",
+    "test:all": "node --import tsx --test --test-concurrency=1 tests/storage.test.ts tests/scoring.test.ts tests/bot.test.ts tests/polling.test.ts tests/favorites.test.ts tests/forwarding.test.ts tests/audit.test.ts",
     "test": "npm run test:all"
   },
   "dependencies": {

@@ -349,7 +349,7 @@ test("Slash Commands System", async (t) => {
     assert.equal(unfavoriteCommand.name, "unfavorite");
 
     const payloads = getCommandRegistrationPayloads();
-    assert.equal(payloads.length, 11);
+    assert.equal(payloads.length, 12);
     assert.equal(payloads[0].name, "ping");
     assert.equal(payloads[1].name, "testfeed");
     assert.equal(payloads[2].name, "lastposts");
@@ -361,6 +361,7 @@ test("Slash Commands System", async (t) => {
     assert.equal(payloads[8].name, "sources");
     assert.equal(payloads[9].name, "favorites");
     assert.equal(payloads[10].name, "unfavorite");
+    assert.equal(payloads[11].name, "audit");
   });
 
   await t.test("handlePingCommand should reply with pong", async () => {
@@ -380,34 +381,42 @@ test("Slash Commands System", async (t) => {
   });
 
   await t.test("handleReloadconfigCommand should reload config in-place", async () => {
-    let deferred = false;
-    let editedReply = false;
-    let replyContent = "";
+    const originalManagerIds = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "test-user-123";
 
-    const mockInteraction: any = {
-      deferReply: async (options: any) => {
-        deferred = true;
-        assert.equal(options?.ephemeral, true);
-      },
-      editReply: async (options: any) => {
-        editedReply = true;
-        replyContent = typeof options === "string" ? options : options.content;
-      }
-    };
+    try {
+      let deferred = false;
+      let editedReply = false;
+      let replyContent = "";
 
-    const mockConfig: AppConfig = {
-      topics: { old: { channelId: "1", keywords: [], blockedTerms: [], postThreshold: 0 } },
-      sources: { old: [] }
-    };
+      const mockInteraction: any = {
+        user: { id: "test-user-123" },
+        deferReply: async (options: any) => {
+          deferred = true;
+          assert.equal(options?.ephemeral, true);
+        },
+        editReply: async (options: any) => {
+          editedReply = true;
+          replyContent = typeof options === "string" ? options : options.content;
+        }
+      };
 
-    await handleReloadconfigCommand(mockInteraction, mockConfig);
-    assert.ok(deferred);
-    assert.ok(editedReply);
-    assert.match(replyContent, /Successfully reloaded configuration/);
+      const mockConfig: AppConfig = {
+        topics: { old: { channelId: "1", keywords: [], blockedTerms: [], postThreshold: 0 } },
+        sources: { old: [] }
+      };
 
-    // Verify config was mutated in place (it loaded topics from dev topics.json)
-    assert.ok(!mockConfig.topics.old);
-    assert.ok(Object.keys(mockConfig.topics).length > 0);
+      await handleReloadconfigCommand(mockInteraction, mockConfig);
+      assert.ok(deferred);
+      assert.ok(editedReply);
+      assert.match(replyContent, /Successfully reloaded configuration/);
+
+      // Verify config was mutated in place (it loaded topics from dev topics.json)
+      assert.ok(!mockConfig.topics.old);
+      assert.ok(Object.keys(mockConfig.topics).length > 0);
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalManagerIds;
+    }
   });
 
   await t.test("handleLastpostsCommand should list recently posted articles", async () => {
@@ -543,45 +552,53 @@ test("Slash Commands System", async (t) => {
   });
 
   await t.test("handleTestfeedCommand should execute test run", async () => {
-    let deferred = false;
-    let editedReply = false;
-    let replyContent = "";
+    const originalManagerIds = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "test-user-123";
 
-    const mockInteraction: any = {
-      options: {
-        getString: (name: string) => {
-          if (name === "topic") return "anime";
-          return null;
+    try {
+      let deferred = false;
+      let editedReply = false;
+      let replyContent = "";
+
+      const mockInteraction: any = {
+        user: { id: "test-user-123" },
+        options: {
+          getString: (name: string) => {
+            if (name === "topic") return "anime";
+            return null;
+          }
+        },
+        deferReply: async (options: any) => {
+          deferred = true;
+          assert.equal(options?.ephemeral, true);
+        },
+        editReply: async (options: any) => {
+          editedReply = true;
+          replyContent = typeof options === "string" ? options : options.content;
         }
-      },
-      deferReply: async (options: any) => {
-        deferred = true;
-        assert.equal(options?.ephemeral, true);
-      },
-      editReply: async (options: any) => {
-        editedReply = true;
-        replyContent = typeof options === "string" ? options : options.content;
-      }
-    };
+      };
 
-    const mockClient: any = {
-      channels: {
-        fetch: async () => ({
-          isTextBased: () => true,
-          send: async () => ({ id: "mock" })
-        })
-      }
-    };
+      const mockClient: any = {
+        channels: {
+          fetch: async () => ({
+            isTextBased: () => true,
+            send: async () => ({ id: "mock" })
+          })
+        }
+      };
 
-    const mockConfig: AppConfig = {
-      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
-      sources: { anime: [] }
-    };
+      const mockConfig: AppConfig = {
+        topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+        sources: { anime: [] }
+      };
 
-    await handleTestfeedCommand(mockInteraction, mockClient, mockConfig);
-    assert.ok(deferred);
-    assert.ok(editedReply);
-    assert.match(replyContent, /Diagnostic Test Run for Topic/);
+      await handleTestfeedCommand(mockInteraction, mockClient, mockConfig);
+      assert.ok(deferred);
+      assert.ok(editedReply);
+      assert.match(replyContent, /Diagnostic Test Run for Topic/);
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalManagerIds;
+    }
   });
 
   await t.test("handleRefreshCommand should execute refresh run", async () => {

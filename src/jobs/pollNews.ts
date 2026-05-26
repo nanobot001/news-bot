@@ -6,7 +6,7 @@ import { normalizeRssItem } from "../normalization/normalizeRssItem.js";
 import { checkDuplicate } from "../processing/dedupe.js";
 import { scoreArticle } from "../processing/scoreArticle.js";
 import { filterArticle } from "../processing/filterArticle.js";
-import { saveArticle, pruneOldArticles } from "../storage/articleRepo.js";
+import { saveArticle, pruneOldArticles, saveCurationLog } from "../storage/articleRepo.js";
 import { ARTICLE_STATUSES, type ArticleStatus } from "../storage/articleStatus.js";
 import { formatArticleEmbed, postArticleToChannel } from "../bot/postEmbed.js";
 
@@ -34,6 +34,17 @@ function classifySkipStatus(reasons: string[]): ArticleStatus {
   }
 
   return ARTICLE_STATUSES.SKIPPED_FILTERED;
+}
+
+function determineCurationStatus(
+  shouldPost: boolean,
+  scoreReasons: string[],
+  filterReasons: string[]
+): string {
+  if (shouldPost) return "POSTED";
+  if (scoreReasons.some((r) => r.includes("Blocked term matched"))) return "SKIPPED_BLOCKED";
+  if (filterReasons.some((r) => r.includes("cooldown") || r.includes("throttled"))) return "DEFERRED_COOLDOWN";
+  return "SKIPPED_THRESHOLD";
 }
 
 /**
@@ -113,6 +124,25 @@ export async function pollNews(
           });
 
           const isDryRun = forceDryRun || process.env.DRY_RUN === "true";
+          const curationStatus = determineCurationStatus(
+            filteringResult.shouldPost,
+            scoringResult.reasons,
+            filteringResult.reasons
+          );
+
+          if (!isDryRun) {
+            await saveCurationLog({
+              title: event.title,
+              url: event.url,
+              source: event.sourceName,
+              topic: event.topic,
+              status: curationStatus,
+              score: scoringResult.score,
+              breakdown: scoringResult.reasons,
+            }).catch((err) => {
+              console.error(`Failed to save curation log:`, err);
+            });
+          }
 
           if (filteringResult.shouldPost) {
             counts[topic].eligible!++;

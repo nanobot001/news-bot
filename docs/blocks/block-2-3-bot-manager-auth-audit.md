@@ -45,4 +45,7 @@ Secure bot manager-level commands and implement database-backed logs tracking al
 
 ## Status
 
-Pending.
+> Status: Implemented on 2026-05-26.
+> Result: Implemented.
+> Verification: `npm run test` - passed.
+> Notes: Secured /reload-config, /testfeed, and /audit slash commands, implemented SQLite-backed CurationLog schema and persistence, and added comprehensive unit tests covering auth gate helper and audit log command execution.
