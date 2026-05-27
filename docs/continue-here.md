@@ -1,5 +1,17 @@
 # Continue Here
 
+## 2026-05-27 (YouTube RSS Ingestion Stabilization Complete)
+
+Current state:
+- **YouTube Ingestion Fallback**: Deployed a local RSSHub instance (on port 1200, managed by PM2 under the process name `rsshub`) to act as a fallback proxy for YouTube feed polling when direct XML requests to `feeds/videos.xml?channel_id=...` fail.
+- **Shorts Shelf Parsing**: Modified the custom Innertube route in RSSHub (`lib/routes/youtube/api/youtubei.ts`) to handle channels without a standard "Videos" tab. The system now catches the "Videos tab not found" error, fetches the channel's Shorts shelf, and maps the `ReelItem` objects to standard RSS fields (including YouTube thumbnail and description mapping).
+- **Configuration Integration**: Added the `RSSHUB_BASE_URL` optional environment variable in `.env` to point to the local RSSHub instance.
+- **Documentation**: Updated `README.md` and `CHANGELOG.md` with configuration guidelines and technical ingestion flows.
+- **Verification**: Verified all 16 YouTube feeds in `sources.json` return successfully via the RSSHub proxy and the test suite passes 151/151 tests.
+
+Next step:
+- Move to Phase 2/3 blocks, or focus on advanced trust level weightings and scoring rules.
+
 ## 2026-05-27 (Curation Stabilization & Bulk Keyword Management Complete)
 
 Current state:
