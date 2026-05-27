@@ -62,6 +62,7 @@ Common optional variables:
 | `FORWARD_EMAIL_EMOJI` | Optional custom emoji name for email forwarding reactions. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional SMTP settings for email forwarding. |
 | `ALLOW_ETHEREAL_FALLBACK` | Allows Ethereal test mail fallback outside development when set to `true`. |
+| `RSSHUB_BASE_URL` | Base URL of local or public RSSHub instance to use as fallback for failing YouTube feeds (e.g. `http://127.0.0.1:1200`). |
 
 Initialize Prisma and SQLite:
 
@@ -144,6 +145,13 @@ RSS sources are grouped by topic.
 ```
 
 Trusted sources receive a 15 point score bonus and can allow location keywords to score even when no core keyword matched.
+
+### YouTube Ingestion & RSSHub Integration
+
+YouTube's native XML feeds (e.g., `https://www.youtube.com/feeds/videos.xml?channel_id=...`) are frequently rate-limited or return error pages when requested directly by browsers or simple HTTP clients. To ensure high availability of video sources, the bot features a seamless local RSSHub integration:
+
+1. **Fallback Logic**: If the bot's direct attempt to poll a YouTube channel feed fails, it automatically redirects the fetch query to a local **RSSHub** instance via `RSSHUB_BASE_URL`.
+2. **Shorts Handling**: For YouTube channels that do not have a dedicated "Videos" tab (e.g., channels focusing strictly on Shorts or new channel layouts), the custom RSSHub route handler falls back to retrieving the channel's "Shorts" shelf and automatically maps those short-form uploads to the standard RSS structure.
 
 ## Discord Commands
 
