@@ -2309,6 +2309,17 @@ export async function handleMergeToThreadModal(
           content: `🧵 New story thread created. Alert: ${mentions}`
         });
       }
+
+      // Auto-add configured managers to the thread so they join automatically
+      const managerUserIdsStr = process.env.BOT_MANAGER_USER_IDS || "";
+      const managerUserIds = managerUserIdsStr.split(",").map(id => id.trim()).filter(id => id.length > 0);
+      for (const uId of managerUserIds) {
+        try {
+          await thread.members.add(uId);
+        } catch (memberErr) {
+          console.error(`Failed to auto-add user ${uId} to thread:`, memberErr);
+        }
+      }
     } else {
       thread = await client.channels.fetch(threadId);
     }
