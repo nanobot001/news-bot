@@ -63,6 +63,8 @@ Common optional variables:
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional SMTP settings for email forwarding. |
 | `ALLOW_ETHEREAL_FALLBACK` | Allows Ethereal test mail fallback outside development when set to `true`. |
 | `RSSHUB_BASE_URL` | Base URL of local or public RSSHub instance to use as fallback for failing YouTube feeds (e.g. `http://127.0.0.1:1200`). |
+| `THREAD_INACTIVE_LIMIT_HOURS` | Thread archival inactivity limit in hours (default: `4`). |
+
 
 Initialize Prisma and SQLite:
 
