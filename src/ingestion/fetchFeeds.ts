@@ -10,6 +10,24 @@ export type FetchFeedItemsResult = FetchFeedResult & {
   items: ParsedRssItem[];
 };
 
+function getRsshubBaseUrl(): string | null {
+  const raw = (process.env.RSSHUB_BASE_URL || "").trim();
+  if (!raw) return null;
+  return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+}
+
+function getYoutubeChannelIdFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "www.youtube.com" && parsed.hostname !== "youtube.com") return null;
+    if (parsed.pathname !== "/feeds/videos.xml") return null;
+    const id = parsed.searchParams.get("channel_id");
+    return id && id.startsWith("UC") ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchText(url: string): Promise<string> {
   const timeoutMs = 8000;
   const maxRetries = 3;
@@ -41,6 +59,23 @@ async function fetchText(url: string): Promise<string> {
       });
 
       if (!response.ok) {
+        const ytChannelId = getYoutubeChannelIdFromUrl(url);
+        const rsshubBaseUrl = getRsshubBaseUrl();
+        if (ytChannelId && rsshubBaseUrl) {
+          const rsshubUrl = `${rsshubBaseUrl}/youtube/channel/${ytChannelId}`;
+          const rsshubResponse = await fetch(rsshubUrl, {
+            headers: {
+              "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "connection": "close"
+            },
+            signal: AbortSignal.timeout(timeoutMs)
+          });
+          if (!rsshubResponse.ok) {
+            throw new Error(`RSS fetch failed (${response.status}) for ${url} and RSSHub fallback failed (${rsshubResponse.status}) for ${rsshubUrl}`);
+          }
+          return await rsshubResponse.text();
+        }
+
         throw new Error(`RSS fetch failed (${response.status}) for ${url}`);
       }
 

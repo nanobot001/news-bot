@@ -211,6 +211,8 @@ Message context menu command:
 | Command | Target | Access | Description |
 |---|---|---|---|
 | `Remove Article` | A Discord message | Bot manager | Opens a modal to remove a bot-posted article with an operator reason. |
+| `Merge to Thread` | A Discord message | Bot manager | Merges an isolated article into an existing active topic thread. |
+| `Remove from Thread` | A Discord message | Bot manager | Removes an article from a thread, posting it as an isolated message. |
 
 `/lastposts status` choices:
 
@@ -250,8 +252,8 @@ Message context menu command:
 | Subcommand | Options | Access | Autocomplete | Description |
 |---|---|---|---|---|
 | `/keyword view` | `topic` required | Anyone | `topic` | View standard, location, and negative keywords. |
-| `/keyword add` | `topic`, `keyword` required; `type` optional | Bot manager | `topic` | Add a standard, location, or negative keyword. |
-| `/keyword remove` | `topic`, `keyword` required; `type` optional | Bot manager | `topic`, `keyword` | Remove a standard, location, or negative keyword. |
+| `/keyword add` | `topic`, `keyword` required; `type` optional | Bot manager | `topic` | Add one or multiple comma-separated standard, location, or negative keywords. |
+| `/keyword remove` | `topic`, `keyword` required; `type` optional | Bot manager | `topic`, `keyword` | Remove one or multiple comma-separated standard, location, or negative keywords. |
 
 `/keyword type` choices:
 

@@ -1,5 +1,18 @@
 # Continue Here
 
+## 2026-05-27 (Curation Stabilization & Bulk Keyword Management Complete)
+
+Current state:
+- **Curation Stabilization**: Implemented robust fallback lookup (`findArticleByMessageOrEmbed`) for articles and DB self-healing. Protected `startThread` operations with try-catch blocks in `src/bot/commands.ts` and `src/jobs/pollNews.ts` to gracefully handle `MessageExistingThread` errors.
+- **Bulk Keyword Management**: Upgraded `/keyword add` and `/keyword remove` commands to support bulk operations via comma-separated input strings.
+- Refactored `loadConfig.ts` to automatically split and clean comma-separated keyword entries during startup.
+- Preserved exact singular output structures for single-keyword operations to ensure complete backward compatibility with existing unit tests.
+- Unified "Split from Thread" nomenclature to "Remove from Thread" across commands and tests.
+- Verified all 150 automated tests pass successfully and restarted the `news-bot` PM2 service.
+
+Next step:
+- Evaluate the next curation enhancement priorities, such as finalizing any remaining Phase 2 blocks.
+
 ## 2026-05-26 (Toronto Eats Sources & Regional News Mass Expansion Complete)
 
 Current state:

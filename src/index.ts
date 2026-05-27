@@ -31,7 +31,7 @@ import {
   handleRemoveArticleModal,
   handleMergeToThreadCommand,
   handleMergeToThreadModal,
-  handleSplitFromThreadCommand
+  handleRemoveFromThreadCommand
 } from "./bot/commands.js";
 import { getFavorites } from "./storage/articleRepo.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
@@ -119,8 +119,12 @@ async function main(): Promise<void> {
             return { name, value: fav.id };
           });
           await interaction.respond(choices);
-        } catch (error) {
-          console.error("[Autocomplete] Error serving unfavorite choices:", error);
+        } catch (error: any) {
+          if (error && (error.code === 10062 || error.message?.includes("Unknown interaction"))) {
+            console.warn("[Autocomplete] Unfavorite autocomplete expired (10062).");
+          } else {
+            console.error("[Autocomplete] Error serving unfavorite choices:", error);
+          }
           try {
             await interaction.respond([]);
           } catch (_) {}
@@ -158,8 +162,12 @@ async function main(): Promise<void> {
           } else {
             await interaction.respond([]);
           }
-        } catch (error) {
-          console.error(`[Autocomplete] Error serving autocomplete choices:`, error);
+        } catch (error: any) {
+          if (error && (error.code === 10062 || error.message?.includes("Unknown interaction"))) {
+            console.warn("[Autocomplete] Topic/Keyword autocomplete expired (10062).");
+          } else {
+            console.error(`[Autocomplete] Error serving autocomplete choices:`, error);
+          }
           try {
             await interaction.respond([]);
           } catch (_) {}
@@ -174,8 +182,8 @@ async function main(): Promise<void> {
         await handleRemoveArticleCommand(interaction);
       } else if (interaction.commandName === "Merge to Thread") {
         await handleMergeToThreadCommand(interaction);
-      } else if (interaction.commandName === "Split from Thread") {
-        await handleSplitFromThreadCommand(interaction, client, appConfig);
+      } else if (interaction.commandName === "Remove from Thread") {
+        await handleRemoveFromThreadCommand(interaction, client, appConfig);
       }
       return;
     }

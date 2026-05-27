@@ -57,7 +57,9 @@ function validateStringArray(value: unknown, label: string): string[] {
     throw new Error(`${label} must be an array of strings`);
   }
 
-  return value;
+  return value.flatMap((item: string) =>
+    item.split(",").map((part) => part.trim()).filter((part) => part.length > 0)
+  );
 }
 
 function validateTopics(value: unknown): Record<string, TopicConfig> {

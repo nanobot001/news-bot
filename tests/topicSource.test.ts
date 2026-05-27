@@ -78,6 +78,7 @@ function createMockInteraction(options: {
   onReply?: (payload: any) => Promise<any> | void;
   onEditReply?: (payload: any) => Promise<any> | void;
   onDeferReply?: (payload: any) => Promise<any> | void;
+  onFollowUp?: (payload: any) => Promise<any> | void;
 }): any {
   return {
     user: { id: options.userId ?? "9999" },
@@ -99,6 +100,10 @@ function createMockInteraction(options: {
     },
     editReply: async (payload: any) => {
       if (options.onEditReply) return options.onEditReply(payload);
+      return {};
+    },
+    followUp: async (payload: any) => {
+      if (options.onFollowUp) return options.onFollowUp(payload);
       return {};
     }
   };
@@ -554,23 +559,68 @@ test("Source Management Command Suite", async (t) => {
     process.env.BOT_MANAGER_USER_IDS = "9999";
 
     try {
-      let replied = false;
-      let replyContent = "";
+      let deferred = false;
+      let edited = false;
+      let editContent = "";
 
       const interaction = createMockInteraction({
         userId: "9999",
         subcommand: "list",
         optionsMap: { topic: "anime" },
-        onReply: (payload) => {
-          replied = true;
-          replyContent = typeof payload === "string" ? payload : payload.content;
+        onDeferReply: () => {
+          deferred = true;
+        },
+        onEditReply: (payload) => {
+          edited = true;
+          editContent = typeof payload === "string" ? payload : payload.content;
         }
       });
 
       await handleSourceCommand(interaction, appConfig);
-      assert.ok(replied);
-      assert.match(replyContent, /Crunchyroll/);
-      assert.match(replyContent, /TRUSTED/);
+      assert.ok(deferred);
+      assert.ok(edited);
+      assert.match(editContent, /Crunchyroll/);
+      assert.match(editContent, /TRUSTED/);
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalEnv;
+    }
+  });
+
+  await t.test("should chunk long source lists for a topic", async () => {
+    const originalEnv = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "9999";
+
+    try {
+      const longConfig: AppConfig = {
+        topics: {
+          "toronto-eats": { channelId: "33333333", keywords: [], blockedTerms: [], postThreshold: 20 }
+        },
+        sources: {
+          "toronto-eats": Array.from({ length: 35 }, (_, index) => ({
+            name: `Toronto Source ${index + 1}`,
+            url: `https://example.com/very/long/rss/feed/path/${index + 1}?neighbourhood=toronto&category=restaurants`,
+            trusted: index % 2 === 0
+          }))
+        }
+      };
+      const messages: string[] = [];
+
+      const interaction = createMockInteraction({
+        userId: "9999",
+        subcommand: "list",
+        optionsMap: { topic: "toronto-eats" },
+        onEditReply: (payload) => {
+          messages.push(typeof payload === "string" ? payload : payload.content);
+        },
+        onFollowUp: (payload) => {
+          messages.push(typeof payload === "string" ? payload : payload.content);
+        }
+      });
+
+      await handleSourceCommand(interaction, longConfig);
+      assert.ok(messages.length > 1);
+      assert.ok(messages.every(message => message.length <= 2000));
+      assert.match(messages.join("\n"), /Toronto Source 35/);
     } finally {
       process.env.BOT_MANAGER_USER_IDS = originalEnv;
     }
