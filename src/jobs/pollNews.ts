@@ -365,6 +365,11 @@ export async function archiveInactiveThreads(client: Client): Promise<void> {
       return;
     }
 
+    const limitHours = process.env.THREAD_INACTIVE_LIMIT_HOURS 
+      ? parseFloat(process.env.THREAD_INACTIVE_LIMIT_HOURS) 
+      : 4;
+    const reason = `Story inactive for > ${limitHours} hours`;
+
     console.log(`[Thread Cleanup] Found ${inactiveAnchors.length} inactive story threads to close.`);
 
     for (const anchor of inactiveAnchors) {
@@ -374,8 +379,8 @@ export async function archiveInactiveThreads(client: Client): Promise<void> {
         const threadChannel = await client.channels.fetch(anchor.storyThreadId);
         if (threadChannel?.isThread()) {
           // Lock and archive the thread
-          await threadChannel.setArchived(true, "Story inactive for > 24 hours");
-          await threadChannel.setLocked(true, "Story inactive for > 24 hours");
+          await threadChannel.setArchived(true, reason);
+          await threadChannel.setLocked(true, reason);
           console.log(`[Thread Cleanup] Archived & locked thread: "${threadChannel.name}" (${threadChannel.id})`);
         }
       } catch (discordErr) {

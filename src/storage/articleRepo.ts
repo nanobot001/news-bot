@@ -607,10 +607,14 @@ export async function unlinkFromAnchor(
 
 /**
  * Retrieves parent story anchors that have a storyThreadId, are not closed,
- * and have had no new articles or updates for more than 24 hours.
+ * and have had no new articles or updates for more than the inactivity threshold.
  */
-export async function getInactiveStoryAnchors(inactiveThresholdMs = 24 * 60 * 60 * 1000): Promise<Article[]> {
-  const cutoff = new Date(Date.now() - inactiveThresholdMs);
+export async function getInactiveStoryAnchors(inactiveThresholdMs?: number): Promise<Article[]> {
+  const limitHours = process.env.THREAD_INACTIVE_LIMIT_HOURS 
+    ? parseFloat(process.env.THREAD_INACTIVE_LIMIT_HOURS) 
+    : 4;
+  const threshold = inactiveThresholdMs ?? (limitHours * 60 * 60 * 1000);
+  const cutoff = new Date(Date.now() - threshold);
   return prisma.article.findMany({
     where: {
       anchorId: null,
