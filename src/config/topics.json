@@ -91,7 +91,8 @@
       "pick-em",
       "dfs",
       "ats",
-      "live"
+      "live",
+      "tempo"
     ],
     "postThreshold": 20,
     "emoji": "<:jays:1508144467230724217>"
@@ -220,8 +221,10 @@
       "brunson",
       "cavs",
       "harden",
-      "kd, durant",
-      "wemby, wembanyama"
+      "kd",
+      "durant",
+      "wemby",
+      "wembanyama"
     ],
     "blockedTerms": [
       "sponsored",
@@ -341,7 +344,6 @@
       "brunch",
       "opening",
       "openings",
-      "closed",
       "closing",
       "closings",
       "pop-up",
@@ -452,7 +454,9 @@
       "robbery",
       "blue jays",
       "raptors",
-      "maple leafs"
+      "maple leafs",
+      "close",
+      "closed"
     ],
     "postThreshold": 20,
     "emoji": "<:torontofoodie3:1508674647711940702>",

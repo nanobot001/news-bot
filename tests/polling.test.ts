@@ -3,6 +3,9 @@ import { closeSync, existsSync, openSync, rmSync } from "node:fs";
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 import type { Client } from "discord.js";
+import { acquireLock, releaseLock } from "../src/utils/lock.js";
+import fs from "node:fs";
+import path from "node:path";
 
 // 1. Force the test database URL before importing prisma or repository modules
 const TEST_DB_URL = "file:./dev-test-poll.db";
@@ -388,6 +391,37 @@ test("Scheduled Polling Pipeline System", async (t) => {
       assert.match(saved.statusReason ?? "", /exceeds max age of 24 hours/);
     } finally {
       process.env.MAX_ARTICLE_AGE_HOURS = "0";
+    }
+  });
+
+  test("File lock mechanism", () => {
+    const origNodeEnv = process.env.NODE_ENV;
+    const origDbUrl = process.env.DATABASE_URL;
+
+    delete process.env.NODE_ENV;
+    delete process.env.DATABASE_URL;
+
+    const lockFile = path.join(process.cwd(), "polling.lock");
+    if (fs.existsSync(lockFile)) {
+      fs.unlinkSync(lockFile);
+    }
+
+    try {
+      const acquired1 = acquireLock();
+      assert.equal(acquired1, true);
+      assert.equal(fs.existsSync(lockFile), true);
+
+      const acquired2 = acquireLock();
+      assert.equal(acquired2, false);
+
+      releaseLock();
+      assert.equal(fs.existsSync(lockFile), false);
+    } finally {
+      process.env.NODE_ENV = origNodeEnv;
+      process.env.DATABASE_URL = origDbUrl;
+      if (fs.existsSync(lockFile)) {
+        fs.unlinkSync(lockFile);
+      }
     }
   });
 });

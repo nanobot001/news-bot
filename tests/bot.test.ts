@@ -367,7 +367,7 @@ test("Slash Commands System", async (t) => {
     assert.equal(payloads[14].name, "keyword");
     assert.equal(payloads[15].name, "Remove Article");
     assert.equal(payloads[16].name, "Merge to Thread");
-    assert.equal(payloads[17].name, "Split from Thread");
+    assert.equal(payloads[17].name, "Remove from Thread");
   });
 
   await t.test("handlePingCommand should reply with pong", async () => {

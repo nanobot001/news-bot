@@ -10,6 +10,7 @@ import { saveArticle, pruneOldArticles, saveCurationLog, getActiveAnchors, setSt
 import { ARTICLE_STATUSES, type ArticleStatus } from "../storage/articleStatus.js";
 import { formatArticleEmbed, postArticleToChannel } from "../bot/postEmbed.js";
 import { calculateJaccardSimilarity, cleanThreadTitle } from "../processing/similarity.js";
+import { acquireLock, releaseLock } from "../utils/lock.js";
 
 export type PollTopicCounts = {
   checked: number;
@@ -59,8 +60,13 @@ export async function pollNews(
   targetTopic?: string,
   forceDryRun = false
 ): Promise<Record<string, PollTopicCounts>> {
-  const counts: Record<string, PollTopicCounts> = {};
-  const topicsToPoll = targetTopic ? [targetTopic] : Object.keys(config.topics);
+  if (!acquireLock()) {
+    console.warn("[News Poll] Another polling job is already running. Skipping this execution.");
+    return {};
+  }
+  try {
+    const counts: Record<string, PollTopicCounts> = {};
+    const topicsToPoll = targetTopic ? [targetTopic] : Object.keys(config.topics);
 
   for (const topic of topicsToPoll) {
     counts[topic] = {
@@ -178,10 +184,19 @@ export async function pollNews(
                       const anchorMsg = await anchorChannel.messages.fetch(bestAnchor.discordMessageId);
                       if (anchorMsg) {
                         const threadTitle = cleanThreadTitle(bestAnchor.title);
-                        const thread = await anchorMsg.startThread({
-                          name: threadTitle,
-                          autoArchiveDuration: 1440
-                        });
+                        let thread: any;
+                        try {
+                          thread = await anchorMsg.startThread({
+                            name: threadTitle,
+                            autoArchiveDuration: 1440
+                          });
+                        } catch (startErr: any) {
+                          console.warn("[PollNews] startThread failed, fetching existing thread by ID:", startErr);
+                          thread = await client.channels.fetch(anchorMsg.id).catch(() => null);
+                          if (!thread) {
+                            throw startErr;
+                          }
+                        }
                         threadId = thread.id;
                         await setStoryThreadId(bestAnchor.id, bestAnchor.topic, thread.id);
 
@@ -282,7 +297,10 @@ export async function pollNews(
     }
   }
 
-  return counts;
+    return counts;
+  } finally {
+    releaseLock();
+  }
 }
 
 /**

@@ -31,9 +31,39 @@ export const mergeToThreadCommand = new ContextMenuCommandBuilder()
   .setName("Merge to Thread")
   .setType(ApplicationCommandType.Message);
 
-export const splitFromThreadCommand = new ContextMenuCommandBuilder()
-  .setName("Split from Thread")
+export const removeFromThreadCommand = new ContextMenuCommandBuilder()
+  .setName("Remove from Thread")
   .setType(ApplicationCommandType.Message);
+
+const DISCORD_MESSAGE_LIMIT = 2000;
+const DISCORD_SAFE_MESSAGE_LIMIT = 1900;
+
+function chunkLines(header: string, lines: string[], limit = DISCORD_SAFE_MESSAGE_LIMIT): string[] {
+  const chunks: string[] = [];
+  let current = header;
+
+  for (const line of lines) {
+    const nextLine = `${line}\n`;
+    if (current.length + nextLine.length > limit && current !== header) {
+      chunks.push(current.trimEnd());
+      current = "";
+    }
+
+    if (nextLine.length > limit) {
+      const available = Math.max(limit - 20, 1);
+      chunks.push(`${nextLine.slice(0, available).trimEnd()}\n...`);
+      continue;
+    }
+
+    current += nextLine;
+  }
+
+  if (current.trim().length > 0) {
+    chunks.push(current.trimEnd());
+  }
+
+  return chunks.map(chunk => chunk.length > DISCORD_MESSAGE_LIMIT ? chunk.slice(0, DISCORD_MESSAGE_LIMIT) : chunk);
+}
 
 
 
@@ -434,7 +464,7 @@ export function getCommandRegistrationPayloads(): any[] {
     keywordCommand.toJSON(),
     removeArticleCommand.toJSON(),
     mergeToThreadCommand.toJSON(),
-    splitFromThreadCommand.toJSON()
+    removeFromThreadCommand.toJSON()
   ];
 }
 
@@ -1615,16 +1645,27 @@ export async function handleSourceCommand(
       return;
     }
 
-    const list = sources.map(s => {
-      const trustWord = s.trusted ? "⭐ [TRUSTED]" : "❌ [UNTRUSTED]";
-      return `• **${s.name}** - ${trustWord} - <${s.url}>`;
-    });
+    try {
+      await interaction.deferReply({ ephemeral: true });
 
-    await interaction.reply({
-      content: `### Sources for Topic lane **${topic}**:\n${list.join("\n")}`,
-      ephemeral: true
-    });
+      const list = sources.map((s, index) => {
+        const trustWord = s.trusted ? "[TRUSTED]" : "[UNTRUSTED]";
+        return `${index + 1}. **${s.name}** - ${trustWord} - <${s.url}>`;
+      });
+      const header = `### Sources for Topic lane **${topic}** (${sources.length})\n`;
+      const chunks = chunkLines(header, list);
+
+      await interaction.editReply({ content: chunks[0] });
+      for (const chunk of chunks.slice(1)) {
+        await interaction.followUp({ content: chunk, ephemeral: true });
+      }
+    } catch (err: any) {
+      await interaction.editReply({
+        content: `Failed to list sources: ${err.message}`
+      });
+    }
     return;
+
   }
 
   if (subcommand === "add") {
@@ -1829,10 +1870,10 @@ export async function handleKeywordCommand(
   }
 
   const keywordRaw = interaction.options.getString("keyword", true);
-  const keyword = keywordRaw.trim().toLowerCase();
+  const newKeywords = keywordRaw.split(",").map(k => k.trim().toLowerCase()).filter(k => k.length > 0);
   const type = interaction.options.getString("type") || "standard";
 
-  if (keyword.length === 0) {
+  if (newKeywords.length === 0) {
     await interaction.reply({
       content: "❌ **Error:** Keyword cannot be empty or whitespace only.",
       ephemeral: true
@@ -1841,16 +1882,37 @@ export async function handleKeywordCommand(
   }
 
   if (subcommand === "add") {
-    const standardExists = topicConfig.keywords.includes(keyword);
-    const locationExists = (topicConfig.locationKeywords || []).includes(keyword);
-    const negativeExists = (topicConfig.blockedTerms || []).includes(keyword);
+    const added: string[] = [];
+    const duplicates: string[] = [];
 
-    if (standardExists || locationExists || negativeExists) {
-      let typeLabel = "standard";
-      if (locationExists) typeLabel = "location";
-      if (negativeExists) typeLabel = "negative";
+    for (const kw of newKeywords) {
+      const standardExists = topicConfig.keywords.includes(kw);
+      const locationExists = (topicConfig.locationKeywords || []).includes(kw);
+      const negativeExists = (topicConfig.blockedTerms || []).includes(kw);
+
+      if (standardExists || locationExists || negativeExists) {
+        duplicates.push(kw);
+      } else {
+        added.push(kw);
+      }
+    }
+
+    if (added.length === 0) {
+      let errorMsg = "";
+      if (duplicates.length === 1) {
+        const kw = duplicates[0];
+        const standardExists = topicConfig.keywords.includes(kw);
+        const locationExists = (topicConfig.locationKeywords || []).includes(kw);
+        const negativeExists = (topicConfig.blockedTerms || []).includes(kw);
+        let typeLabel = "standard";
+        if (locationExists) typeLabel = "location";
+        if (negativeExists) typeLabel = "negative";
+        errorMsg = `❌ **Error:** The keyword \`${kw}\` already exists as a ${typeLabel} keyword for topic **${topic}**.`;
+      } else {
+        errorMsg = `❌ **Error:** The keyword(s) ${duplicates.map(d => `\`${d}\``).join(", ")} already exist for topic **${topic}**.`;
+      }
       await interaction.reply({
-        content: `❌ **Error:** The keyword \`${keyword}\` already exists as a ${typeLabel} keyword for topic **${topic}**.`,
+        content: errorMsg,
         ephemeral: true
       });
       return;
@@ -1863,11 +1925,11 @@ export async function handleKeywordCommand(
       const currentConfig = { ...updatedTopics[topic] };
 
       if (type === "standard") {
-        currentConfig.keywords = [...currentConfig.keywords, keyword];
+        currentConfig.keywords = [...currentConfig.keywords, ...added];
       } else if (type === "location") {
-        currentConfig.locationKeywords = [...(currentConfig.locationKeywords || []), keyword];
+        currentConfig.locationKeywords = [...(currentConfig.locationKeywords || []), ...added];
       } else {
-        currentConfig.blockedTerms = [...(currentConfig.blockedTerms || []), keyword];
+        currentConfig.blockedTerms = [...(currentConfig.blockedTerms || []), ...added];
       }
 
       updatedTopics[topic] = currentConfig;
@@ -1875,32 +1937,61 @@ export async function handleKeywordCommand(
       await saveTopicsConfig(updatedTopics);
       await reloadAppConfig(appConfig);
 
-      console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} added keyword "${keyword}" (type: ${type}) to topic "${topic}"`);
+      for (const kw of added) {
+        console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} added keyword "${kw}" (type: ${type}) to topic "${topic}"`);
+      }
 
+      let msg = "";
+      if (added.length === 1) {
+        msg = `✅ Successfully added **${type}** keyword \`${added[0]}\` to topic **${topic}**.`;
+      } else {
+        msg = `✅ Successfully added **${type}** keyword(s): ${added.map(k => `\`${k}\``).join(", ")} to topic **${topic}**.`;
+      }
+      if (duplicates.length > 0) {
+        msg += ` (Skipped duplicate(s): ${duplicates.map(d => `\`${d}\``).join(", ")})`;
+      }
       await interaction.editReply({
-        content: `✅ Successfully added **${type}** keyword \`${keyword}\` to topic **${topic}**.`
+        content: msg
       });
     } catch (err: any) {
       await interaction.editReply({
-        content: `❌ **Error:** Failed to add keyword: ${err.message}`
+        content: `❌ **Error:** Failed to add keyword(s): ${err.message}`
       });
     }
     return;
   }
+
 
   if (subcommand === "remove") {
-    let exists = false;
-    if (type === "standard") {
-      exists = topicConfig.keywords.includes(keyword);
-    } else if (type === "location") {
-      exists = (topicConfig.locationKeywords || []).includes(keyword);
-    } else {
-      exists = (topicConfig.blockedTerms || []).includes(keyword);
+    const removed: string[] = [];
+    const missing: string[] = [];
+
+    for (const kw of newKeywords) {
+      let exists = false;
+      if (type === "standard") {
+        exists = topicConfig.keywords.includes(kw);
+      } else if (type === "location") {
+        exists = (topicConfig.locationKeywords || []).includes(kw);
+      } else {
+        exists = (topicConfig.blockedTerms || []).includes(kw);
+      }
+
+      if (exists) {
+        removed.push(kw);
+      } else {
+        missing.push(kw);
+      }
     }
 
-    if (!exists) {
+    if (removed.length === 0) {
+      let errorMsg = "";
+      if (missing.length === 1) {
+        errorMsg = `❌ **Error:** The keyword \`${missing[0]}\` does not exist as a **${type}** keyword for topic **${topic}**.`;
+      } else {
+        errorMsg = `❌ **Error:** The keyword(s) ${missing.map(m => `\`${m}\``).join(", ")} do not exist as **${type}** keywords for topic **${topic}**.`;
+      }
       await interaction.reply({
-        content: `❌ **Error:** The keyword \`${keyword}\` does not exist as a **${type}** keyword for topic **${topic}**.`,
+        content: errorMsg,
         ephemeral: true
       });
       return;
@@ -1913,11 +2004,11 @@ export async function handleKeywordCommand(
       const currentConfig = { ...updatedTopics[topic] };
 
       if (type === "standard") {
-        currentConfig.keywords = currentConfig.keywords.filter(k => k !== keyword);
+        currentConfig.keywords = currentConfig.keywords.filter(k => !removed.includes(k));
       } else if (type === "location") {
-        currentConfig.locationKeywords = (currentConfig.locationKeywords || []).filter(k => k !== keyword);
+        currentConfig.locationKeywords = (currentConfig.locationKeywords || []).filter(k => !removed.includes(k));
       } else {
-        currentConfig.blockedTerms = (currentConfig.blockedTerms || []).filter(k => k !== keyword);
+        currentConfig.blockedTerms = (currentConfig.blockedTerms || []).filter(k => !removed.includes(k));
       }
 
       updatedTopics[topic] = currentConfig;
@@ -1925,18 +2016,30 @@ export async function handleKeywordCommand(
       await saveTopicsConfig(updatedTopics);
       await reloadAppConfig(appConfig);
 
-      console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} removed keyword "${keyword}" (type: ${type}) from topic "${topic}"`);
+      for (const kw of removed) {
+        console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} removed keyword "${kw}" (type: ${type}) from topic "${topic}"`);
+      }
 
+      let msg = "";
+      if (removed.length === 1) {
+        msg = `✅ Successfully removed **${type}** keyword \`${removed[0]}\` from topic **${topic}**.`;
+      } else {
+        msg = `✅ Successfully removed **${type}** keyword(s): ${removed.map(k => `\`${k}\``).join(", ")} from topic **${topic}**.`;
+      }
+      if (missing.length > 0) {
+        msg += ` (Skipped non-existent(s): ${missing.map(m => `\`${m}\``).join(", ")})`;
+      }
       await interaction.editReply({
-        content: `✅ Successfully removed **${type}** keyword \`${keyword}\` from topic **${topic}**.`
+        content: msg
       });
     } catch (err: any) {
       await interaction.editReply({
-        content: `❌ **Error:** Failed to remove keyword: ${err.message}`
+        content: `❌ **Error:** Failed to remove keyword(s): ${err.message}`
       });
     }
     return;
   }
+
 }
 
 export async function handleRemoveArticleCommand(
@@ -2393,7 +2496,7 @@ export async function handleMergeToThreadModal(
   }
 }
 
-export async function handleSplitFromThreadCommand(
+export async function handleRemoveFromThreadCommand(
   interaction: MessageContextMenuCommandInteraction,
   client: Client,
   appConfig: AppConfig
