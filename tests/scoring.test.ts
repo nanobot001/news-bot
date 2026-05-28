@@ -370,5 +370,42 @@ test("Scoring and Filtering Logic Suite", async (t) => {
     assert.ok(resultNbaNoContext.reasons.some((r) => r.includes("highlights")));
   });
 
+  await t.test("should apply sports trade context rules", () => {
+    // 1. Topic "raptors" (team topic) with context
+    const resultRaptorsWithContext = scoreArticle({
+      event: { ...dummyEvent, topic: "raptors", title: "Raptors trade rumors surrounding Quickley" },
+      keywords: ["raptors", "quickley", "trade", "trades"],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    // Matches: "raptors", "quickley", "trade". Total = 20.
+    assert.equal(resultRaptorsWithContext.score, 20);
+    assert.ok(resultRaptorsWithContext.reasons.some((r) => r.includes("raptors")));
+    assert.ok(resultRaptorsWithContext.reasons.some((r) => r.includes("trade")));
+
+    // 2. Topic "raptors" (team topic) without context -> trades ignored
+    const resultRaptorsNoContext = scoreArticle({
+      event: { ...dummyEvent, topic: "raptors", title: "Blockbuster trades around the NBA today" },
+      keywords: ["raptors", "quickley", "trade", "trades"],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    // Matches: "trades" (ignored). Total = 0.
+    assert.equal(resultRaptorsNoContext.score, 0);
+    assert.ok(resultRaptorsNoContext.reasons.some((r) => r.includes("ignored due to lack of team/player context")));
+
+    // 3. Topic "nba" (non-team topic) without team-specific context -> trades allowed
+    const resultNbaNoContext = scoreArticle({
+      event: { ...dummyEvent, topic: "nba", title: "Breaking NBA trades and updates" },
+      keywords: ["nba", "trade", "trades"],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    // Matches: "nba", "trades". Total = 20.
+    assert.equal(resultNbaNoContext.score, 20);
+    assert.ok(resultNbaNoContext.reasons.some((r) => r.includes("nba")));
+    assert.ok(resultNbaNoContext.reasons.some((r) => r.includes("trades")));
+  });
+
 });
 

@@ -35,24 +35,24 @@ export function scoreArticle(input: ScoreArticleInput): ScoreArticleResult {
   let matchedTitleKeywords = getMatchedTerms(event.title, keywords);
   let matchedSummaryKeywords = event.summary ? getMatchedTerms(event.summary, keywords) : [];
 
-  // Refine highlight matches for team-specific topics
+  // Refine conditional matches for team-specific topics
   const TEAM_SPORTS_TOPICS = ["jays", "raptors"];
-  const HIGHLIGHT_KEYWORDS = ["highlight", "highlights"];
+  const CONDITIONAL_KEYWORDS = ["highlight", "highlights", "trade", "trades"];
   if (TEAM_SPORTS_TOPICS.includes(event.topic)) {
-    const matchedTitleHighlights = matchedTitleKeywords.filter((k) => HIGHLIGHT_KEYWORDS.includes(k.toLowerCase()));
-    const matchedSummaryHighlights = matchedSummaryKeywords.filter((k) => HIGHLIGHT_KEYWORDS.includes(k.toLowerCase()));
-    const hasHighlightMatch = matchedTitleHighlights.length > 0 || matchedSummaryHighlights.length > 0;
+    const matchedTitleConditional = matchedTitleKeywords.filter((k) => CONDITIONAL_KEYWORDS.includes(k.toLowerCase()));
+    const matchedSummaryConditional = matchedSummaryKeywords.filter((k) => CONDITIONAL_KEYWORDS.includes(k.toLowerCase()));
+    const hasConditionalMatch = matchedTitleConditional.length > 0 || matchedSummaryConditional.length > 0;
 
-    if (hasHighlightMatch) {
-      const matchedTitleTeamSpecific = matchedTitleKeywords.filter((k) => !HIGHLIGHT_KEYWORDS.includes(k.toLowerCase()));
-      const matchedSummaryTeamSpecific = matchedSummaryKeywords.filter((k) => !HIGHLIGHT_KEYWORDS.includes(k.toLowerCase()));
+    if (hasConditionalMatch) {
+      const matchedTitleTeamSpecific = matchedTitleKeywords.filter((k) => !CONDITIONAL_KEYWORDS.includes(k.toLowerCase()));
+      const matchedSummaryTeamSpecific = matchedSummaryKeywords.filter((k) => !CONDITIONAL_KEYWORDS.includes(k.toLowerCase()));
       const hasTeamSpecificMatch = matchedTitleTeamSpecific.length > 0 || matchedSummaryTeamSpecific.length > 0;
 
       if (!hasTeamSpecificMatch) {
-        // Ignore highlight keywords since there is no team specific context
+        // Ignore conditional keywords since there is no team specific context
         matchedTitleKeywords = matchedTitleTeamSpecific;
         matchedSummaryKeywords = matchedSummaryTeamSpecific;
-        reasons.push("Highlight keyword(s) matched but ignored due to lack of team/player context");
+        reasons.push("Highlight/trade keyword(s) matched but ignored due to lack of team/player context");
       }
     }
   }
