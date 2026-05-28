@@ -424,4 +424,49 @@ test("Scheduled Polling Pipeline System", async (t) => {
       }
     }
   });
+
+  await t.test("YouTube feed URL rewriting and handles fallback", async () => {
+    const originalFetch = globalThis.fetch;
+    const requestedUrls: string[] = [];
+
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = input.toString();
+      requestedUrls.push(urlStr);
+      
+      if (
+        urlStr.includes("youtube.com/feeds/videos.xml") || 
+        urlStr.includes("youtube/user") || 
+        urlStr.includes("youtube/channel")
+      ) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => createRssXml("YouTube Title", "https://example.com/yt-link", "yt-guid", "YouTube Description")
+        } as any;
+      }
+      return { ok: false, status: 404 } as any;
+    };
+
+    try {
+      const { fetchFeedItems } = await import("../src/ingestion/fetchFeeds.js");
+
+      // Test Case 1: Standard feeds/videos.xml?channel_id=UC...
+      await fetchFeedItems({ name: "YT Feed", url: "https://www.youtube.com/feeds/videos.xml?channel_id=UC12345", trusted: true });
+      assert.ok(requestedUrls.includes("https://www.youtube.com/feeds/videos.xml?channel_id=UC12345"));
+
+      // Test Case 2: Channel ID URL /channel/UC...
+      requestedUrls.length = 0;
+      await fetchFeedItems({ name: "YT Channel", url: "https://www.youtube.com/channel/UC67890", trusted: true });
+      assert.ok(requestedUrls.includes("https://www.youtube.com/feeds/videos.xml?channel_id=UC67890"));
+
+      // Test Case 3: Handle URL /@handleName
+      requestedUrls.length = 0;
+      process.env.RSSHUB_BASE_URL = "http://127.0.0.1:1200";
+      await fetchFeedItems({ name: "YT Handle", url: "https://www.youtube.com/@MattyMatheson", trusted: true });
+      assert.ok(requestedUrls.includes("http://127.0.0.1:1200/youtube/user/@MattyMatheson"));
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.RSSHUB_BASE_URL;
+    }
+  });
 });
