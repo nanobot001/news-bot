@@ -333,5 +333,42 @@ test("Scoring and Filtering Logic Suite", async (t) => {
     assert.ok(!resultWithTrusted.reasons.some((r) => r.includes("Title matched location keyword")));
   });
 
+  await t.test("should apply sports highlights context rules", () => {
+    // 1. Topic "jays" (team topic) with context
+    const resultJaysWithContext = scoreArticle({
+      event: { ...dummyEvent, topic: "jays", title: "Vlad Guerrero Jr. Highlights vs Yankees" },
+      keywords: ["blue jays", "jays", "guerrero", "highlight", "highlights"],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    // Matches: "guerrero", "highlights". Title keyword match is flat binary -> Total = 20.
+    assert.equal(resultJaysWithContext.score, 20);
+    assert.ok(resultJaysWithContext.reasons.some((r) => r.includes("guerrero")));
+    assert.ok(resultJaysWithContext.reasons.some((r) => r.includes("highlights")));
+
+    // 2. Topic "jays" (team topic) without context -> highlights ignored
+    const resultJaysNoContext = scoreArticle({
+      event: { ...dummyEvent, topic: "jays", title: "Yankees vs Red Sox Highlights" },
+      keywords: ["blue jays", "jays", "guerrero", "highlight", "highlights"],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    // Matches: "highlights" (ignored). Total = 0.
+    assert.equal(resultJaysNoContext.score, 0);
+    assert.ok(resultJaysNoContext.reasons.some((r) => r.includes("ignored due to lack of team/player context")));
+
+    // 3. Topic "nba" (non-team topic) without team-specific context -> highlights allowed
+    const resultNbaNoContext = scoreArticle({
+      event: { ...dummyEvent, topic: "nba", title: "Awesome NBA Highlights 2026" },
+      keywords: ["nba", "highlight", "highlights"],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    // Matches: "nba", "highlights". Title keyword match is flat binary -> Total = 20.
+    assert.equal(resultNbaNoContext.score, 20);
+    assert.ok(resultNbaNoContext.reasons.some((r) => r.includes("nba")));
+    assert.ok(resultNbaNoContext.reasons.some((r) => r.includes("highlights")));
+  });
+
 });
 

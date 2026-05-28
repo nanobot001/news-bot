@@ -32,8 +32,31 @@ export function scoreArticle(input: ScoreArticleInput): ScoreArticleResult {
   const reasons: string[] = [];
 
   // Check core keywords
-  const matchedTitleKeywords = getMatchedTerms(event.title, keywords);
-  const matchedSummaryKeywords = event.summary ? getMatchedTerms(event.summary, keywords) : [];
+  let matchedTitleKeywords = getMatchedTerms(event.title, keywords);
+  let matchedSummaryKeywords = event.summary ? getMatchedTerms(event.summary, keywords) : [];
+
+  // Refine highlight matches for team-specific topics
+  const TEAM_SPORTS_TOPICS = ["jays", "raptors"];
+  const HIGHLIGHT_KEYWORDS = ["highlight", "highlights"];
+  if (TEAM_SPORTS_TOPICS.includes(event.topic)) {
+    const matchedTitleHighlights = matchedTitleKeywords.filter((k) => HIGHLIGHT_KEYWORDS.includes(k.toLowerCase()));
+    const matchedSummaryHighlights = matchedSummaryKeywords.filter((k) => HIGHLIGHT_KEYWORDS.includes(k.toLowerCase()));
+    const hasHighlightMatch = matchedTitleHighlights.length > 0 || matchedSummaryHighlights.length > 0;
+
+    if (hasHighlightMatch) {
+      const matchedTitleTeamSpecific = matchedTitleKeywords.filter((k) => !HIGHLIGHT_KEYWORDS.includes(k.toLowerCase()));
+      const matchedSummaryTeamSpecific = matchedSummaryKeywords.filter((k) => !HIGHLIGHT_KEYWORDS.includes(k.toLowerCase()));
+      const hasTeamSpecificMatch = matchedTitleTeamSpecific.length > 0 || matchedSummaryTeamSpecific.length > 0;
+
+      if (!hasTeamSpecificMatch) {
+        // Ignore highlight keywords since there is no team specific context
+        matchedTitleKeywords = matchedTitleTeamSpecific;
+        matchedSummaryKeywords = matchedSummaryTeamSpecific;
+        reasons.push("Highlight keyword(s) matched but ignored due to lack of team/player context");
+      }
+    }
+  }
+
   const titleHasCoreKeyword = matchedTitleKeywords.length > 0;
   const summaryHasCoreKeyword = matchedSummaryKeywords.length > 0;
   const hasCoreKeyword = titleHasCoreKeyword || summaryHasCoreKeyword;
