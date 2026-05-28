@@ -911,6 +911,53 @@ test("Slash Commands System", async (t) => {
     assert.match(replyContent, /trusted/);
   });
 
+  await t.test("handleSourcesCommand should chunk long source lists", async () => {
+    let deferred = false;
+    let editedReply = false;
+    let replyContent = "";
+    const followedUp: string[] = [];
+
+    const mockInteraction: any = {
+      options: {
+        getString: (name: string) => {
+          if (name === "topic") return null;
+          return null;
+        }
+      },
+      deferReply: async (options: any) => {
+        deferred = true;
+      },
+      editReply: async (options: any) => {
+        editedReply = true;
+        replyContent = typeof options === "string" ? options : options.content;
+      },
+      followUp: async (options: any) => {
+        followedUp.push(typeof options === "string" ? options : options.content);
+      }
+    };
+
+    const feeds = [];
+    for (let i = 0; i < 40; i++) {
+      feeds.push({
+        name: `Feed Long Name ${i}`,
+        url: `https://example.com/feed-very-long-url-path-to-test-chunking-behavior-${i}`,
+        trusted: i % 2 === 0
+      });
+    }
+
+    const mockConfig: AppConfig = {
+      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      sources: { anime: feeds }
+    };
+
+    await handleSourcesCommand(mockInteraction, mockConfig);
+    assert.ok(deferred);
+    assert.ok(editedReply);
+    assert.ok(followedUp.length > 0, "Should have called followUp for second chunk");
+    assert.match(replyContent, /Feed Long Name 0/);
+    assert.match(followedUp[followedUp.length - 1], /Feed Long Name 39/);
+  });
+
   await t.test("handleFavoritesCommand should list user's favorites", async () => {
     await prisma.userFavorite.deleteMany({});
     await prisma.article.deleteMany({});

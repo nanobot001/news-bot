@@ -1010,26 +1010,26 @@ export async function handleSourcesCommand(
   try {
     await interaction.deferReply({ ephemeral: true });
 
-    let responseText = `**Configured RSS Sources**\n\n`;
+    const list: string[] = [];
     const targetTopics = topic ? [topic] : Object.keys(appConfig.sources);
 
     for (const t of targetTopics) {
       const feeds = appConfig.sources[t] || [];
-      responseText += `**Topic: ${t}** (${feeds.length} feeds):\n`;
+      list.push(`**Topic: ${t}** (${feeds.length} feeds):`);
       for (const feed of feeds) {
         const trustedStr = feed.trusted ? " 🌟(trusted)" : "";
-        const line = `- _${feed.name}_: <${feed.url}>${trustedStr}\n`;
-
-        if (responseText.length + line.length > 1950) {
-          responseText += `\n*...list truncated due to Discord limit.*`;
-          break;
-        }
-        responseText += line;
+        list.push(`- _${feed.name}_: <${feed.url}>${trustedStr}`);
       }
-      responseText += `\n`;
+      list.push("");
     }
 
-    await interaction.editReply({ content: responseText });
+    const header = `**Configured RSS Sources**\n\n`;
+    const chunks = chunkLines(header, list);
+
+    await interaction.editReply({ content: chunks[0] });
+    for (const chunk of chunks.slice(1)) {
+      await interaction.followUp({ content: chunk, ephemeral: true });
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     await interaction.editReply({
