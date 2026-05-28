@@ -5,8 +5,9 @@ import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 
 // 1. Force the test database URL before importing prisma or repository modules
-const TEST_DB_URL = "file:./dev-test.db";
-const TEST_DB_FILE = "./prisma/dev-test.db"; // SQLite relative to prisma directory/project root
+// 1. Force the test database URL before importing prisma or repository modules
+const TEST_DB_URL = "file:./dev-test-keyword.db";
+const TEST_DB_FILE = "./prisma/dev-test-keyword.db"; // SQLite relative to prisma directory/project root
 process.env.DATABASE_URL = TEST_DB_URL;
 
 import { prisma } from "../src/storage/prismaClient.js";
@@ -99,10 +100,10 @@ after(async () => {
 
 function cleanUpTestFiles() {
   const filesToDelete = [
-    "./prisma/dev-test.db",
-    "./prisma/dev-test.db-journal",
-    "./dev-test.db",
-    "./dev-test.db-journal",
+    "./prisma/dev-test-keyword.db",
+    "./prisma/dev-test-keyword.db-journal",
+    "./dev-test-keyword.db",
+    "./dev-test-keyword.db-journal",
   ];
   for (const file of filesToDelete) {
     try {
@@ -632,4 +633,171 @@ test("Topic Keyword Management and Refresh Lookback Suite", async (t) => {
     assert.equal(dbArticle2.status, "SKIPPED_LOW_SCORE");
     assert.equal(dbArticle2.postedAt, null);
   });
+
+  await t.test("add keyword - multi-topic batch update", async () => {
+    const originalEnv = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "9999";
+
+    try {
+      let appConfig: AppConfig = {
+        topics: {
+          anime: {
+            channelId: "11111111",
+            keywords: ["naruto"],
+            blockedTerms: [],
+            postThreshold: 20
+          },
+          tech: {
+            channelId: "22222222",
+            keywords: ["rust"],
+            blockedTerms: [],
+            postThreshold: 50
+          }
+        },
+        sources: {}
+      };
+
+      let deferred = false;
+      let edited = false;
+      let editContent = "";
+
+      const interaction = createMockInteraction({
+        subcommand: "add",
+        optionsMap: {
+          topic: "tech, anime",
+          keyword: "golang",
+          type: "standard"
+        },
+        onDeferReply: () => {
+          deferred = true;
+        },
+        onEditReply: (payload) => {
+          edited = true;
+          editContent = typeof payload === "string" ? payload : payload.content;
+        }
+      });
+
+      await handleKeywordCommand(interaction, appConfig);
+
+      assert.ok(deferred);
+      assert.ok(edited);
+      assert.match(editContent, /Successfully updated keywords/);
+      assert.match(editContent, /• \*\*tech\*\*: Added: `golang`/);
+      assert.match(editContent, /• \*\*anime\*\*: Added: `golang`/);
+
+      // Verify config reloaded
+      assert.ok(appConfig.topics.tech.keywords.includes("golang"));
+      assert.ok(appConfig.topics.anime.keywords.includes("golang"));
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalEnv;
+    }
+  });
+
+  await t.test("remove keyword - multi-topic batch update", async () => {
+    const originalEnv = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "9999";
+
+    try {
+      let appConfig: AppConfig = {
+        topics: {
+          anime: {
+            channelId: "11111111",
+            keywords: ["naruto", "golang"],
+            blockedTerms: [],
+            postThreshold: 20
+          },
+          tech: {
+            channelId: "22222222",
+            keywords: ["rust", "golang"],
+            blockedTerms: [],
+            postThreshold: 50
+          }
+        },
+        sources: {}
+      };
+
+      let deferred = false;
+      let edited = false;
+      let editContent = "";
+
+      const interaction = createMockInteraction({
+        subcommand: "remove",
+        optionsMap: {
+          topic: "tech, anime",
+          keyword: "golang",
+          type: "standard"
+        },
+        onDeferReply: () => {
+          deferred = true;
+        },
+        onEditReply: (payload) => {
+          edited = true;
+          editContent = typeof payload === "string" ? payload : payload.content;
+        }
+      });
+
+      await handleKeywordCommand(interaction, appConfig);
+
+      assert.ok(deferred);
+      assert.ok(edited);
+      assert.match(editContent, /Successfully updated keywords/);
+      assert.match(editContent, /• \*\*tech\*\*: Removed: `golang`/);
+      assert.match(editContent, /• \*\*anime\*\*: Removed: `golang`/);
+
+      // Verify config reloaded/updated
+      assert.ok(!appConfig.topics.tech.keywords.includes("golang"));
+      assert.ok(!appConfig.topics.anime.keywords.includes("golang"));
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalEnv;
+    }
+  });
+
+  await t.test("add keyword - multi-topic validation failures", async () => {
+    const originalEnv = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "9999";
+
+    try {
+      let appConfig: AppConfig = {
+        topics: {
+          anime: {
+            channelId: "11111111",
+            keywords: ["naruto"],
+            blockedTerms: [],
+            postThreshold: 20
+          },
+          tech: {
+            channelId: "22222222",
+            keywords: ["rust"],
+            blockedTerms: [],
+            postThreshold: 50
+          }
+        },
+        sources: {}
+      };
+
+      let replied = false;
+      let replyContent = "";
+
+      const interaction = createMockInteraction({
+        subcommand: "add",
+        optionsMap: {
+          topic: "tech, missingtopic",
+          keyword: "golang",
+          type: "standard"
+        },
+        onReply: (payload) => {
+          replied = true;
+          replyContent = typeof payload === "string" ? payload : payload.content;
+        }
+      });
+
+      await handleKeywordCommand(interaction, appConfig);
+
+      assert.ok(replied);
+      assert.match(replyContent, /Unknown topic\(s\): "missingtopic"/);
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalEnv;
+    }
+  });
 });
+

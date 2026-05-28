@@ -106,7 +106,15 @@ export function scoreArticle(input: ScoreArticleInput): ScoreArticleResult {
     reasons.push("Trusted source bonus (+15)");
   }
 
-  // 5. Blocked term penalty
+  // 5. YouTube source bonus — YouTube channels are hand-curated and topic-specific
+  const isYouTubeSource =
+    event.url?.includes("youtube.com") || event.url?.includes("youtu.be");
+  if (isYouTubeSource) {
+    score += 5;
+    reasons.push("YouTube source bonus (+5)");
+  }
+
+  // 6. Blocked term penalty
   const matchedTitleBlocked = getMatchedTerms(event.title, blockedTerms);
   const matchedSummaryBlocked = event.summary ? getMatchedTerms(event.summary, blockedTerms) : [];
   const allBlocked = [...matchedTitleBlocked, ...matchedSummaryBlocked];
@@ -117,7 +125,7 @@ export function scoreArticle(input: ScoreArticleInput): ScoreArticleResult {
     reasons.push(`Blocked term matched ${joined} (-100)`);
   }
 
-  // 6. Missing URL penalty
+  // 7. Missing URL penalty
   if (!event.url || event.url.trim() === "") {
     score -= 10;
     reasons.push("Missing URL (-10)");

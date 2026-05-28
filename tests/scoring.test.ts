@@ -407,5 +407,60 @@ test("Scoring and Filtering Logic Suite", async (t) => {
     assert.ok(resultNbaNoContext.reasons.some((r) => r.includes("trades")));
   });
 
-});
+  await t.test("should apply YouTube source bonus for youtube.com URLs", () => {
+    const ytEvent: NormalizedEvent = {
+      id: "yt-test",
+      type: "news.article",
+      topic: "toronto-eats",
+      title: "Sunday Night LIVE: Doors NOT Open",
+      url: "https://www.youtube.com/watch?v=abc123",
+      sourceName: "Johnny Strides YouTube",
+    };
 
+    // Trusted YouTube, no keyword match: 15 (trusted) + 5 (youtube) = 20 → at threshold
+    const resultTrustedYt = scoreArticle({
+      event: ytEvent,
+      keywords: ["restaurant", "food", "burger"],
+      locationKeywords: [],
+      blockedTerms: [],
+      trustedSource: true,
+    });
+    assert.equal(resultTrustedYt.score, 20);
+    assert.ok(resultTrustedYt.reasons.some((r) => r.includes("Trusted source bonus")));
+    assert.ok(resultTrustedYt.reasons.some((r) => r.includes("YouTube source bonus")));
+
+    // Untrusted YouTube, no keyword match: 0 + 5 (youtube) = 5 → below threshold
+    const resultUntrustedYt = scoreArticle({
+      event: ytEvent,
+      keywords: ["restaurant", "food", "burger"],
+      locationKeywords: [],
+      blockedTerms: [],
+      trustedSource: false,
+    });
+    assert.equal(resultUntrustedYt.score, 5);
+    assert.ok(resultUntrustedYt.reasons.some((r) => r.includes("YouTube source bonus")));
+    assert.ok(!resultUntrustedYt.reasons.some((r) => r.includes("Trusted source bonus")));
+
+    // Trusted YouTube + keyword match: 20 (title) + 15 (trusted) + 5 (youtube) = 40
+    const resultTrustedYtKeyword = scoreArticle({
+      event: { ...ytEvent, title: "Best Burger Spots in Toronto" },
+      keywords: ["burger", "food"],
+      locationKeywords: [],
+      blockedTerms: [],
+      trustedSource: true,
+    });
+    assert.equal(resultTrustedYtKeyword.score, 40);
+
+    // Non-YouTube URL gets no bonus
+    const resultNonYt = scoreArticle({
+      event: { ...ytEvent, url: "https://blogto.com/eat_drink/article" },
+      keywords: ["restaurant", "food"],
+      locationKeywords: [],
+      blockedTerms: [],
+      trustedSource: true,
+    });
+    assert.equal(resultNonYt.score, 15); // trusted only, no youtube bonus
+    assert.ok(!resultNonYt.reasons.some((r) => r.includes("YouTube source bonus")));
+  });
+
+});

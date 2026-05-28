@@ -9,7 +9,13 @@ export type ParsedRssItem = {
   raw?: unknown;
 };
 
-const parser = new Parser();
+const parser = new Parser({
+  customFields: {
+    item: [
+      ["source", "sourceField"]
+    ]
+  }
+});
 
 function cleanOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") {

@@ -11,6 +11,8 @@ import { ARTICLE_STATUSES, type ArticleStatus } from "../storage/articleStatus.j
 import { formatArticleEmbed, postArticleToChannel } from "../bot/postEmbed.js";
 import { calculateJaccardSimilarity, cleanThreadTitle } from "../processing/similarity.js";
 import { acquireLock, releaseLock } from "../utils/lock.js";
+import { decodeGoogleNewsUrl } from "../utils/googleNewsResolver.js";
+import { scrapeOgImage } from "../utils/ogImageScraper.js";
 
 export type PollTopicCounts = {
   checked: number;
@@ -113,6 +115,24 @@ export async function pollNews(
             continue;
           }
 
+          // Resolve Google News URLs before scoring and persisting
+          if (event.url.startsWith("https://news.google.com")) {
+            try {
+              const decodedUrl = await decodeGoogleNewsUrl(event.url);
+              if (decodedUrl && decodedUrl !== event.url) {
+                event.url = decodedUrl;
+                // Re-run deduplication check on the resolved canonical URL
+                const reCheck = await checkDuplicate(event, sharingTopics);
+                if (reCheck.isDuplicate) {
+                  counts[topic].skipped++;
+                  continue;
+                }
+              }
+            } catch (err) {
+              console.warn(`[News Poll] Failed to decode Google News URL ${event.url}:`, err);
+            }
+          }
+
           counts[topic].newItems++;
           const scoringResult = scoreArticle({
             event,
@@ -158,6 +178,17 @@ export async function pollNews(
               console.log(`[Dry Run] Would post article: "${event.title}" to channel: ${topicConfig.channelId}`);
               counts[topic].skipped++;
             } else {
+              // Scrape the OG image from the resolved URL if no image is present
+              if (!event.imageUrl) {
+                try {
+                  const scrapedImg = await scrapeOgImage(event.url);
+                  if (scrapedImg) {
+                    event.imageUrl = scrapedImg;
+                  }
+                } catch (err) {
+                  console.warn(`[News Poll] Failed to scrape OG image for ${event.url}:`, err);
+                }
+              }
               // 1. Fetch active story anchors for the topic
               const activeAnchors = await getActiveAnchors(topic);
               let bestAnchor: any = null;

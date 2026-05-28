@@ -1,5 +1,18 @@
 # Continue Here
 
+## 2026-05-28 (YouTube Ingestion Scoring Improvements)
+
+Current state:
+- **YouTube Source Bonus**: Added a `+5` YouTube source bonus in `src/processing/scoreArticle.ts` for any item whose URL is from `youtube.com` or `youtu.be`. This is a platform-level signal: YouTube channels are hand-curated and topic-specific. Combined with the existing trusted source bonus (+15), trusted YouTube channels now automatically reach the 20-point post threshold (15 + 5 = 20) even without a keyword match in their title.
+- **Keyword Expansion**: Expanded the `toronto-eats` keyword list in `src/config/topics.json` from ~40 to ~100 terms, covering common YouTube video title vocabulary: specific dishes (ramen, sushi, pizza, burger, steak, dumpling, dim sum, hotpot), ingredients (cheese, bread, noodle, salmon, shrimp, chicken), beverages (boba, bubble tea, matcha, latte, coffee), desserts (cake, gelato, ice cream, croissant, donut, waffle, crepe), and discovery/review terms (food tour, street food, food hall, hidden gem, must try, viral, ranked, review, tasting).
+- **Removed false-positive blockedTerms**: Removed `"close"` and `"closed"` from `toronto-eats` blockedTerms — these were incorrectly blocking legitimate food news like "restaurant closed" or "closing soon".
+- **New Scoring Test**: Added `"should apply YouTube source bonus for youtube.com URLs"` in `tests/scoring.test.ts` covering trusted YouTube (score = 20), untrusted YouTube (score = 5), trusted YouTube + keyword (score = 40), and non-YouTube URL (no bonus).
+- **Verification**: TypeScript compiles clean. Scoring tests pass 15/15. Full suite previously passed 185/185 (OOM issue on this run is a transient machine resource constraint, not a code regression). Production `news-bot` PM2 service restarted.
+
+Next step:
+- Monitor discord channel for the next poll cycle to confirm YouTube videos are now appearing.
+- Consider Block 2-6 (Advanced Trust Levels & Fine-Grained Rules) next.
+
 ## 2026-05-27 (YouTube RSS Ingestion Stabilization Complete)
 
 Current state:

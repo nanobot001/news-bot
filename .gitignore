@@ -41,3 +41,6 @@ venv/
 tmp/
 scratch/
 prisma/*.backup*
+
+# Local RSSHub instance
+.rsshub/

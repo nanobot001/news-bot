@@ -7,5 +7,8 @@ export type NormalizedEvent = {
   sourceName: string;
   publishedAt?: string;
   summary?: string;
+  author?: string;
+  imageUrl?: string;
   raw?: unknown;
 };
+

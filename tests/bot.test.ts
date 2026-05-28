@@ -3,7 +3,10 @@ import { closeSync, existsSync, openSync, rmSync } from "node:fs";
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
 import { formatArticleEmbed, postArticleToChannel } from "../src/bot/postEmbed.js";
+import { normalizeRssItem } from "../src/normalization/normalizeRssItem.js";
 import type { NormalizedEvent } from "../src/normalization/normalizedEvent.js";
+import { decodeGoogleNewsUrl } from "../src/utils/googleNewsResolver.js";
+import { scrapeOgImage } from "../src/utils/ogImageScraper.js";
 import { ARTICLE_STATUSES } from "../src/storage/articleStatus.js";
 
 // Force test database configuration for database-touching command tests
@@ -194,6 +197,289 @@ test("Discord Embed Formatting", async (t) => {
 
     assert.equal(data.title, "<:ai:12345> AI Story");
   });
+
+  await t.test("should prefix the embed title with author name in brackets if author is present", () => {
+    const event: NormalizedEvent = {
+      id: "author-test",
+      type: "news.article",
+      topic: "ai",
+      title: "AI Story",
+      url: "https://example.com/ai/story",
+      sourceName: "AI Source",
+      author: "Jane Doe",
+    };
+
+    const embed = formatArticleEmbed({ event, score: 80 });
+    const data = embed.toJSON();
+
+    assert.equal(data.title, "[Jane Doe] AI Story");
+  });
+
+  await t.test("should format title with both emoji and author if both are present", () => {
+    const event: NormalizedEvent = {
+      id: "author-emoji-test",
+      type: "news.article",
+      topic: "ai",
+      title: "AI Story",
+      url: "https://example.com/ai/story",
+      sourceName: "AI Source",
+      author: "Jane Doe",
+    };
+
+    const embed = formatArticleEmbed({ event, score: 80, emoji: "<:ai:12345>" });
+    const data = embed.toJSON();
+
+    assert.equal(data.title, "<:ai:12345> [Jane Doe] AI Story");
+  });
+
+  await t.test("should not prepend author to title if the source comes from Reddit (via sourceName or url)", () => {
+    // Case 1: sourceName contains 'Reddit'
+    const event1: NormalizedEvent = {
+      id: "test-id-reddit-1",
+      type: "news.article",
+      topic: "ai",
+      title: "Reddit Thread Title 1",
+      url: "https://example.com/r/ai/story",
+      sourceName: "TorontoCraftBeer on Reddit",
+      author: "u/beer_lover",
+    };
+    const embed1 = formatArticleEmbed({ event: event1, score: 80, emoji: "<:ai:12345>" });
+    assert.equal(embed1.toJSON().title, "<:ai:12345> Reddit Thread Title 1");
+
+    // Case 2: URL contains 'reddit.com'
+    const event2: NormalizedEvent = {
+      id: "test-id-reddit-2",
+      type: "news.article",
+      topic: "ai",
+      title: "Reddit Thread Title 2",
+      url: "https://www.reddit.com/r/ai/story",
+      sourceName: "Custom Feed",
+      author: "u/ai_expert",
+    };
+    const embed2 = formatArticleEmbed({ event: event2, score: 80, emoji: "<:ai:12345>" });
+    assert.equal(embed2.toJSON().title, "<:ai:12345> Reddit Thread Title 2");
+  });
+});
+
+test("RSS Item Normalization and Author Extraction", async (t) => {
+  const source = {
+    name: "Test Source",
+    url: "https://example.com/rss",
+    trusted: true,
+  };
+
+  await t.test("should extract author from creator field", () => {
+    const item = {
+      title: "Test Article",
+      link: "https://example.com/art1",
+      raw: { creator: "Alice Smith" },
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.author, "Alice Smith");
+  });
+
+  await t.test("should extract author from author field", () => {
+    const item = {
+      title: "Test Article",
+      link: "https://example.com/art1",
+      raw: { author: "Bob Jones" },
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.author, "Bob Jones");
+  });
+
+  await t.test("should extract author from dc:creator field", () => {
+    const item = {
+      title: "Test Article",
+      link: "https://example.com/art1",
+      raw: { "dc:creator": "Charlie Brown" },
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.author, "Charlie Brown");
+  });
+
+  await t.test("should parse author from title and clean it from the title text", () => {
+    const item = {
+      title: "Bontemps: Why Joel Embiid's MVP run is legendary",
+      link: "https://example.com/art1",
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.author, "Bontemps");
+    assert.equal(event.title, "Why Joel Embiid's MVP run is legendary");
+  });
+
+  await t.test("should parse author with 'By' prefix and clean it from the title text", () => {
+    const item = {
+      title: "By Tim Bontemps: Joel Embiid's run",
+      link: "https://example.com/art1",
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.author, "Tim Bontemps");
+    assert.equal(event.title, "Joel Embiid's run");
+  });
+
+  await t.test("should NOT parse author if prefix is blacklisted or lowercase", () => {
+    const testTitles = [
+      "Raptors: Barnes makes progress",
+      "breaking: Something happened",
+      "ESPN NBA: Mock draft update",
+      "Trade Deadline: Players to watch",
+    ];
+
+    for (const title of testTitles) {
+      const item = { title, link: "https://example.com/art1" };
+      const event = normalizeRssItem({ topic: "test", source, item });
+      assert.equal(event.author, undefined);
+      assert.equal(event.title, title); // Unchanged
+    }
+  });
+
+  await t.test("should clear generic metadata authors that match the source/publisher name", () => {
+    const espnSource = { name: "ESPN NBA", url: "https://example.com/espn", trusted: true };
+    const item = {
+      title: "Bontemps: Why Joel Embiid's MVP run is legendary",
+      link: "https://example.com/art1",
+      raw: { creator: "ESPN" }, // generic author matching clean source name "ESPN"
+    };
+    const event = normalizeRssItem({ topic: "test", source: espnSource, item });
+    // Should clear the generic author and fallback to parsing the author from the title
+    assert.equal(event.author, "Bontemps");
+    assert.equal(event.title, "Why Joel Embiid's MVP run is legendary");
+  });
+
+  await t.test("should return undefined for author and not fallback to website name if no author is found", () => {
+    const testSource = { name: "Sportsnet Blue Jays", url: "https://example.com/sn", trusted: true };
+    const item = {
+      title: "No Author Prefix In This Title",
+      link: "https://example.com/art1",
+    };
+    const event = normalizeRssItem({ topic: "test", source: testSource, item });
+    assert.equal(event.author, undefined);
+    assert.equal(event.title, "No Author Prefix In This Title");
+  });
+
+  await t.test("should extract image URL from enclosure metadata", () => {
+    const item = {
+      title: "Test Enclosure",
+      link: "https://example.com/art1",
+      raw: {
+        enclosure: { url: "https://example.com/image.jpg", type: "image/jpeg" }
+      }
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.imageUrl, "https://example.com/image.jpg");
+  });
+
+  await t.test("should extract image URL from enclosures array", () => {
+    const item = {
+      title: "Test Enclosures",
+      link: "https://example.com/art1",
+      raw: {
+        enclosures: [
+          { url: "https://example.com/not-image.pdf", type: "application/pdf" },
+          { url: "https://example.com/image2.png", type: "image/png" }
+        ]
+      }
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.imageUrl, "https://example.com/image2.png");
+  });
+
+  await t.test("should extract image URL from media:content metadata", () => {
+    const item = {
+      title: "Test Media RSS",
+      link: "https://example.com/art1",
+      raw: {
+        "media:content": { url: "https://example.com/media-image.webp" }
+      }
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.imageUrl, "https://example.com/media-image.webp");
+  });
+
+  await t.test("should extract image URL from HTML content (like Reddit/blogs)", () => {
+    const item = {
+      title: "Test Reddit Post",
+      link: "https://example.com/art1",
+      raw: {
+        description: `
+          <table>
+            <tr>
+              <td>
+                <a href="https://example.com/reddit"><img src="https://b.thumbs.redditmedia.com/xyz.jpg" alt="thumbnail" /></a>
+              </td>
+            </tr>
+          </table>
+        `
+      }
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.imageUrl, "https://b.thumbs.redditmedia.com/xyz.jpg");
+  });
+
+  await t.test("should ignore tracking pixel images in HTML", () => {
+    const item = {
+      title: "Test Tracking Pixel",
+      link: "https://example.com/art1",
+      raw: {
+        description: `
+          <div>
+            <img src="https://example.com/1x1.png" width="1" height="1" />
+            <img src="https://example.com/real-image.jpg" />
+          </div>
+        `
+      }
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.imageUrl, "https://example.com/real-image.jpg");
+  });
+
+  await t.test("should decode HTML entities in extracted image URLs", () => {
+    const item = {
+      title: "Test HTML Entity Image URL",
+      link: "https://example.com/art1",
+      raw: {
+        description: `<img src="https://preview.redd.it/xyz.jpg?width=140&amp;height=78&amp;auto=webp" />`
+      }
+    };
+    const event = normalizeRssItem({ topic: "test", source, item });
+    assert.equal(event.imageUrl, "https://preview.redd.it/xyz.jpg?width=140&height=78&auto=webp");
+  });
+
+  await t.test("should rewrite unresolvable publish.bluejaysnation.com image URLs using the public Next.js proxy", () => {
+    const item = {
+      title: "Test Blue Jays Nation Image",
+      link: "https://bluejaysnation.com/news/test-article",
+      raw: {
+        enclosure: {
+          url: "https://publish.bluejaysnation.com/wp-content/uploads/sites/8/2026/05/USATSI_lowres.jpg",
+          type: "image/jpeg"
+        }
+      }
+    };
+    const event = normalizeRssItem({ topic: "jays", source: { name: "Blue Jays Nation", url: "https://bluejaysnation.com/feed/", trusted: true }, item });
+    assert.equal(
+      event.imageUrl,
+      "https://bluejaysnation.com/_next/image?url=https%3A%2F%2Fpublish.bluejaysnation.com%2Fwp-content%2Fuploads%2Fsites%2F8%2F2026%2F05%2FUSATSI_lowres.jpg&w=1200&q=75"
+    );
+
+    // Test generalized host matching for another Nation Network site
+    const leafItem = {
+      title: "Test Leafs Nation Image",
+      link: "https://leafsnation.com/news/test-article",
+      raw: {
+        enclosure: {
+          url: "https://publish.leafsnation.com/wp-content/uploads/sites/12/2026/05/player.jpg",
+          type: "image/jpeg"
+        }
+      }
+    };
+    const leafEvent = normalizeRssItem({ topic: "leafs", source: { name: "Leafs Nation", url: "https://leafsnation.com/feed/", trusted: true }, item: leafItem });
+    assert.equal(
+      leafEvent.imageUrl,
+      "https://leafsnation.com/_next/image?url=https%3A%2F%2Fpublish.leafsnation.com%2Fwp-content%2Fuploads%2Fsites%2F12%2F2026%2F05%2Fplayer.jpg&w=1200&q=75"
+    );
+  });
 });
 
 test("Discord Message Posting (Mocked)", async (t) => {
@@ -331,6 +617,20 @@ test("Discord Message Posting (Mocked)", async (t) => {
       postArticleToChannel(mockClient, "voice-channel", embed),
       /Channel is not text-based: voice-channel/
     );
+  });
+
+  await t.test("should set image from event.imageUrl on the formatArticleEmbed result", () => {
+    const event: NormalizedEvent = {
+      id: "test-id-img",
+      type: "news.article",
+      topic: "anime",
+      title: "Image Title",
+      url: "https://example.com/test-img",
+      sourceName: "Test Source",
+      imageUrl: "https://example.com/embed-image.png"
+    };
+    const embed = formatArticleEmbed({ event, score: 80 });
+    assert.equal(embed.data.image?.url, "https://example.com/embed-image.png");
   });
 });
 
@@ -1088,5 +1388,111 @@ test("Slash Commands System", async (t) => {
     await handleFavoritesCommand(mockInteraction, mockConfig);
     assert.ok(replied);
     assert.match(replyContent, /Unknown topic/);
+  });
+});
+
+test("Google News URL Resolver & OG Image Scraper", async (t) => {
+  const originalFetch = globalThis.fetch;
+  
+  t.afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  await t.test("decodeGoogleNewsUrl should pass through non-Google News URLs", async () => {
+    const url = "https://example.com/some-article";
+    const res = await decodeGoogleNewsUrl(url);
+    assert.equal(res, url);
+  });
+
+  await t.test("decodeGoogleNewsUrl should resolve new style AU_yqL URLs via batchexecute", async () => {
+    const googleNewsUrl = "https://news.google.com/rss/articles/CBMinwFBVV95cUxQNkhhV213dkV4enA3T3k5cXdwY0pPWjlnd3pnUkpmRnhWLVk3dHIzcm5KQ3hJcFVFZUU3aEdXUTNQVUE4QTV4UnNDV3FlU1k2S3ZtY245OGk3R1prUGNtallWOFVyaTR2TzBveV9xanFhZFNIWlg5blhzSzdxb0pOZTJqeWg2N3NLdF9YbVJ4UlhLaUJwLUpUZEs3VDhVVG8?oc=5";
+    
+    globalThis.fetch = async (input: any, init: any) => {
+      const urlStr = input.toString();
+      if (urlStr.includes("news.google.com/rss/articles/")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => `<html><body><c-wiz data-n-a-sg="AaLI4RRMj5_ixIzz3ywNB382mwPg" data-n-a-ts="1780003489"></c-wiz></body></html>`
+        } as any;
+      }
+      if (urlStr.includes("batchexecute")) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => '\n\n[["wrb.fr","Fbv4je","[\\"garturlres\\",\\"https://resolved-link.com\\",\\"another-link\\"]",null,null,null,null,"generic"]]'
+        } as any;
+      }
+      return { ok: false, status: 404 } as any;
+    };
+
+    const res = await decodeGoogleNewsUrl(googleNewsUrl);
+    assert.equal(res, "https://resolved-link.com");
+  });
+
+  await t.test("scrapeOgImage should extract og:image tag", async () => {
+    globalThis.fetch = async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `
+          <html>
+            <head>
+              <meta property="og:image" content="https://example.com/og.jpg" />
+            </head>
+          </html>
+        `
+      } as any;
+    };
+
+    const img = await scrapeOgImage("https://example.com/article");
+    assert.equal(img, "https://example.com/og.jpg");
+  });
+
+  await t.test("scrapeOgImage should fallback to twitter:image tag", async () => {
+    globalThis.fetch = async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `
+          <html>
+            <head>
+              <meta name="twitter:image" content="https://example.com/twitter.jpg" />
+            </head>
+          </html>
+        `
+      } as any;
+    };
+
+    const img = await scrapeOgImage("https://example.com/article");
+    assert.equal(img, "https://example.com/twitter.jpg");
+  });
+
+  await t.test("scrapeOgImage should decode HTML entities in extracted URLs", async () => {
+    globalThis.fetch = async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => `
+          <html>
+            <head>
+              <meta property="og:image" content="https://example.com/og.jpg?width=100&amp;height=200" />
+            </head>
+          </html>
+        `
+      } as any;
+    };
+
+    const img = await scrapeOgImage("https://example.com/article");
+    assert.equal(img, "https://example.com/og.jpg?width=100&height=200");
+  });
+
+  await t.test("scrapeOgImage should return undefined on error", async () => {
+    globalThis.fetch = async () => {
+      throw new Error("Network error");
+    };
+
+    const img = await scrapeOgImage("https://example.com/article");
+    assert.equal(img, undefined);
   });
 });

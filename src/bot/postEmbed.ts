@@ -44,7 +44,11 @@ function extractYoutubeVideoId(urlStr: string): string | null {
  */
 export function formatArticleEmbed(input: ArticleEmbedInput): EmbedBuilder {
   const { event, score, emoji } = input;
-  const title = emoji ? `${emoji} ${event.title}` : event.title;
+  const isFromReddit = 
+    (event.sourceName && event.sourceName.toLowerCase().includes("reddit")) ||
+    (event.url && event.url.toLowerCase().includes("reddit.com"));
+  const displayTitle = (event.author && !isFromReddit) ? `[${event.author}] ${event.title}` : event.title;
+  const title = emoji ? `${emoji} ${displayTitle}` : displayTitle;
   
   const embed = new EmbedBuilder()
     .setTitle(title)
@@ -63,9 +67,13 @@ export function formatArticleEmbed(input: ArticleEmbedInput): EmbedBuilder {
     }
   }
 
-  const ytVideoId = extractYoutubeVideoId(event.url);
-  if (ytVideoId) {
-    embed.setImage(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`);
+  if (event.imageUrl) {
+    embed.setImage(event.imageUrl);
+  } else {
+    const ytVideoId = extractYoutubeVideoId(event.url);
+    if (ytVideoId) {
+      embed.setImage(`https://img.youtube.com/vi/${ytVideoId}/hqdefault.jpg`);
+    }
   }
 
   if (process.env.NODE_ENV === "development") {
@@ -94,4 +102,3 @@ export async function postArticleToChannel(
   }
   return await (channel as any).send({ embeds: [embed] });
 }
-

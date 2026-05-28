@@ -163,6 +163,15 @@ YouTube's native XML feeds (e.g., `https://www.youtube.com/feeds/videos.xml?chan
 1. **Fallback Logic**: If the bot's direct attempt to poll a YouTube channel feed fails, it automatically redirects the fetch query to a local **RSSHub** instance via `RSSHUB_BASE_URL`.
 2. **Shorts Handling**: For YouTube channels that do not have a dedicated "Videos" tab (e.g., channels focusing strictly on Shorts or new channel layouts), the custom RSSHub route handler falls back to retrieving the channel's "Shorts" shelf and automatically maps those short-form uploads to the standard RSS structure.
 
+### Image Ingestion & Rewriting Pipeline
+
+To ensure that bot-posted Discord embeds always display working, high-quality images:
+
+1. **Google News Redirect URL Resolution**: Obfuscated Google News RSS search/article URLs (e.g. `news.google.com/rss/articles/...`) are intercepted early during ingestion and resolved to their canonical publisher URLs via Google's internal `batchexecute` API.
+2. **Private CDN/CMS Subdomain Rewriting**: Feeds hosted on standard networks like the Nation Network (e.g. *Blue Jays Nation*) often output unresolvable image enclosure URLs hosted on private domains (such as `publish.bluejaysnation.com` or `publish.leafsnation.com`). The bot dynamically catches these private hosts using pattern matching and rewrites them to route through the publisher's public Next.js image proxy (e.g. `bluejaysnation.com/_next/image?url=...`), ensuring they resolve for Discord's image proxy.
+3. **Canonical Page Image Scraping**: If an RSS item doesn't contain any image tags in its feed metadata (such as *Sportsnet*), the bot fetches the canonical article page and scrapes its HTML for `og:image` or `twitter:image` metadata tags before formatting the Discord embed.
+
+
 ## Discord Commands
 
 The bot registers slash commands and one message context menu command at startup when `DISCORD_GUILD_ID` is configured.
@@ -269,9 +278,9 @@ Message context menu command:
 
 | Subcommand | Options | Access | Autocomplete | Description |
 |---|---|---|---|---|
-| `/keyword view` | `topic` required | Anyone | `topic` | View standard, location, and negative keywords. |
-| `/keyword add` | `topic`, `keyword` required; `type` optional | Bot manager | `topic` | Add one or multiple comma-separated standard, location, or negative keywords. |
-| `/keyword remove` | `topic`, `keyword` required; `type` optional | Bot manager | `topic`, `keyword` | Remove one or multiple comma-separated standard, location, or negative keywords. |
+| `/keyword view` | `topic` required | Anyone | `topic` | View standard, location, and negative keywords. Supports a single topic or a comma-separated list of multiple topics. |
+| `/keyword add` | `topic`, `keyword` required; `type` optional | Bot manager | `topic` | Add one or multiple comma-separated keywords to a single topic or a comma-separated list of multiple topics. |
+| `/keyword remove` | `topic`, `keyword` required; `type` optional | Bot manager | `topic`, `keyword` | Remove one or multiple comma-separated keywords from a single topic or a comma-separated list of multiple topics. |
 
 `/keyword type` choices:
 

@@ -388,7 +388,7 @@ export const keywordCommand = new SlashCommandBuilder()
       .setDescription("View keywords for a topic")
       .addStringOption(option =>
         option.setName("topic")
-          .setDescription("The topic to view")
+          .setDescription("The topic(s) to view (comma-separated)")
           .setRequired(true)
           .setAutocomplete(true)
       )
@@ -398,7 +398,7 @@ export const keywordCommand = new SlashCommandBuilder()
       .setDescription("Add a keyword to a topic (Bot Manager only)")
       .addStringOption(option =>
         option.setName("topic")
-          .setDescription("The topic to add a keyword to")
+          .setDescription("The topic(s) to add keywords to (comma-separated)")
           .setRequired(true)
           .setAutocomplete(true)
       )
@@ -423,7 +423,7 @@ export const keywordCommand = new SlashCommandBuilder()
       .setDescription("Remove a keyword from a topic (Bot Manager only)")
       .addStringOption(option =>
         option.setName("topic")
-          .setDescription("The topic to remove a keyword from")
+          .setDescription("The topic(s) to remove keywords from (comma-separated)")
           .setRequired(true)
           .setAutocomplete(true)
       )
@@ -1770,94 +1770,221 @@ export async function handleKeywordCommand(
   appConfig: AppConfig
 ): Promise<void> {
   const subcommand = interaction.options.getSubcommand();
-  const topic = interaction.options.getString("topic", true);
-  const topicConfig = appConfig.topics[topic];
+  const topicRaw = interaction.options.getString("topic", true);
+  const targetTopics = topicRaw.split(",").map(t => t.trim().toLowerCase()).filter(t => t.length > 0);
 
-  if (!topicConfig) {
-    const configured = Object.keys(appConfig.topics).join(", ");
+  if (targetTopics.length === 0) {
     await interaction.reply({
-      content: `Unknown topic: "${topic}". Configured topics are: ${configured}`,
+      content: "❌ **Error:** Topic cannot be empty or whitespace only.",
       ephemeral: true
     });
     return;
   }
 
-  if (subcommand === "view") {
-    const keywords = topicConfig.keywords || [];
-    const locationKeywords = topicConfig.locationKeywords || [];
-    const blockedTerms = topicConfig.blockedTerms || [];
-
-    let responseText = `### Keywords for Topic Lane: **${topic}**\n`;
-    
-    let standardList = keywords.map(k => `\`${k}\``).join(", ") || "*None*";
-    let locationList = locationKeywords.map(k => `\`${k}\``).join(", ") || "*None*";
-    let negativeList = blockedTerms.map(k => `\`${k}\``).join(", ") || "*None*";
-
-    let line1 = `- **Standard Keywords (${keywords.length}):** ${standardList}\n`;
-    let line2 = `- **Location Keywords (${locationKeywords.length}):** ${locationList}\n`;
-    let line3 = `- **Negative Keywords (${blockedTerms.length}):** ${negativeList}\n`;
-
-    if (responseText.length + line1.length + line2.length + line3.length > 1950) {
-      await interaction.reply({ content: `Keywords list for **${topic}** is too long. Chunking response...`, ephemeral: true });
-      
-      let standardChunks: string[] = [];
-      let currentChunk = `**Standard Keywords for ${topic} (${keywords.length}):**\n`;
-      for (const k of keywords) {
-        const item = `\`${k}\`, `;
-        if (currentChunk.length + item.length > 1900) {
-          standardChunks.push(currentChunk);
-          currentChunk = ``;
-        }
-        currentChunk += item;
-      }
-      if (currentChunk) standardChunks.push(currentChunk);
-
-      for (const chunk of standardChunks) {
-        await interaction.followUp({ content: chunk, ephemeral: true });
-      }
-
-      if (locationKeywords.length > 0) {
-        let locationChunks: string[] = [];
-        let curChunk = `**Location Keywords for ${topic} (${locationKeywords.length}):**\n`;
-        for (const k of locationKeywords) {
-          const item = `\`${k}\`, `;
-          if (curChunk.length + item.length > 1900) {
-            locationChunks.push(curChunk);
-            curChunk = ``;
-          }
-          curChunk += item;
-        }
-        if (curChunk) locationChunks.push(curChunk);
-
-        for (const chunk of locationChunks) {
-          await interaction.followUp({ content: chunk, ephemeral: true });
-        }
-      }
-
-      if (blockedTerms.length > 0) {
-        let negativeChunks: string[] = [];
-        let curChunk = `**Negative Keywords for ${topic} (${blockedTerms.length}):**\n`;
-        for (const k of blockedTerms) {
-          const item = `\`${k}\`, `;
-          if (curChunk.length + item.length > 1900) {
-            negativeChunks.push(curChunk);
-            curChunk = ``;
-          }
-          curChunk += item;
-        }
-        if (curChunk) negativeChunks.push(curChunk);
-
-        for (const chunk of negativeChunks) {
-          await interaction.followUp({ content: chunk, ephemeral: true });
-        }
-      }
+  // Validate that all specified topics exist
+  const unknownTopics = targetTopics.filter(topic => !appConfig.topics[topic]);
+  if (unknownTopics.length > 0) {
+    const configured = Object.keys(appConfig.topics).join(", ");
+    if (targetTopics.length === 1) {
+      await interaction.reply({
+        content: `Unknown topic: "${targetTopics[0]}". Configured topics are: ${configured}`,
+        ephemeral: true
+      });
     } else {
       await interaction.reply({
-        content: responseText + line1 + line2 + line3,
+        content: `Unknown topic(s): ${unknownTopics.map(t => `"${t}"`).join(", ")}. Configured topics are: ${configured}`,
         ephemeral: true
       });
     }
     return;
+  }
+
+  if (subcommand === "view") {
+    if (targetTopics.length === 1) {
+      const topic = targetTopics[0];
+      const topicConfig = appConfig.topics[topic];
+      const keywords = topicConfig.keywords || [];
+      const locationKeywords = topicConfig.locationKeywords || [];
+      const blockedTerms = topicConfig.blockedTerms || [];
+
+      let responseText = `### Keywords for Topic Lane: **${topic}**\n`;
+      
+      let standardList = keywords.map(k => `\`${k}\``).join(", ") || "*None*";
+      let locationList = locationKeywords.map(k => `\`${k}\``).join(", ") || "*None*";
+      let negativeList = blockedTerms.map(k => `\`${k}\``).join(", ") || "*None*";
+
+      let line1 = `- **Standard Keywords (${keywords.length}):** ${standardList}\n`;
+      let line2 = `- **Location Keywords (${locationKeywords.length}):** ${locationList}\n`;
+      let line3 = `- **Negative Keywords (${blockedTerms.length}):** ${negativeList}\n`;
+
+      if (responseText.length + line1.length + line2.length + line3.length > 1950) {
+        await interaction.reply({ content: `Keywords list for **${topic}** is too long. Chunking response...`, ephemeral: true });
+        
+        let standardChunks: string[] = [];
+        let currentChunk = `**Standard Keywords for ${topic} (${keywords.length}):**\n`;
+        for (const k of keywords) {
+          const item = `\`${k}\`, `;
+          if (currentChunk.length + item.length > 1900) {
+            standardChunks.push(currentChunk);
+            currentChunk = ``;
+          }
+          currentChunk += item;
+        }
+        if (currentChunk) standardChunks.push(currentChunk);
+
+        for (const chunk of standardChunks) {
+          await interaction.followUp({ content: chunk, ephemeral: true });
+        }
+
+        if (locationKeywords.length > 0) {
+          let locationChunks: string[] = [];
+          let curChunk = `**Location Keywords for ${topic} (${locationKeywords.length}):**\n`;
+          for (const k of locationKeywords) {
+            const item = `\`${k}\`, `;
+            if (curChunk.length + item.length > 1900) {
+              locationChunks.push(curChunk);
+              curChunk = ``;
+            }
+            curChunk += item;
+          }
+          if (curChunk) locationChunks.push(curChunk);
+
+          for (const chunk of locationChunks) {
+            await interaction.followUp({ content: chunk, ephemeral: true });
+          }
+        }
+
+        if (blockedTerms.length > 0) {
+          let negativeChunks: string[] = [];
+          let curChunk = `**Negative Keywords for ${topic} (${blockedTerms.length}):**\n`;
+          for (const k of blockedTerms) {
+            const item = `\`${k}\`, `;
+            if (curChunk.length + item.length > 1900) {
+              negativeChunks.push(curChunk);
+              curChunk = ``;
+            }
+            curChunk += item;
+          }
+          if (curChunk) negativeChunks.push(curChunk);
+
+          for (const chunk of negativeChunks) {
+            await interaction.followUp({ content: chunk, ephemeral: true });
+          }
+        }
+      } else {
+        await interaction.reply({
+          content: responseText + line1 + line2 + line3,
+          ephemeral: true
+        });
+      }
+      return;
+    } else {
+      // Multiple topics view
+      const parts: string[] = [];
+      for (const topic of targetTopics) {
+        const topicConfig = appConfig.topics[topic];
+        const keywords = topicConfig.keywords || [];
+        const locationKeywords = topicConfig.locationKeywords || [];
+        const blockedTerms = topicConfig.blockedTerms || [];
+
+        let standardList = keywords.map(k => `\`${k}\``).join(", ") || "*None*";
+        let locationList = locationKeywords.map(k => `\`${k}\``).join(", ") || "*None*";
+        let negativeList = blockedTerms.map(k => `\`${k}\``).join(", ") || "*None*";
+
+        parts.push(
+          `### Keywords for Topic Lane: **${topic}**\n` +
+          `- **Standard Keywords (${keywords.length}):** ${standardList}\n` +
+          `- **Location Keywords (${locationKeywords.length}):** ${locationList}\n` +
+          `- **Negative Keywords (${blockedTerms.length}):** ${negativeList}\n`
+        );
+      }
+
+      const fullContent = parts.join("\n");
+      if (fullContent.length > 1950) {
+        await interaction.reply({ content: `Combined keywords list is too long. Chunking response by topic...`, ephemeral: true });
+        
+        for (const topic of targetTopics) {
+          const topicConfig = appConfig.topics[topic];
+          const keywords = topicConfig.keywords || [];
+          const locationKeywords = topicConfig.locationKeywords || [];
+          const blockedTerms = topicConfig.blockedTerms || [];
+
+          let responseText = `### Keywords for Topic Lane: **${topic}**\n`;
+          let standardList = keywords.map(k => `\`${k}\``).join(", ") || "*None*";
+          let locationList = locationKeywords.map(k => `\`${k}\``).join(", ") || "*None*";
+          let negativeList = blockedTerms.map(k => `\`${k}\``).join(", ") || "*None*";
+
+          let line1 = `- **Standard Keywords (${keywords.length}):** ${standardList}\n`;
+          let line2 = `- **Location Keywords (${locationKeywords.length}):** ${locationList}\n`;
+          let line3 = `- **Negative Keywords (${blockedTerms.length}):** ${negativeList}\n`;
+
+          const topicContent = responseText + line1 + line2 + line3;
+          if (topicContent.length > 1950) {
+            // Chunk standard, location, negative keywords individually for this topic
+            let standardChunks: string[] = [];
+            let currentChunk = `**Standard Keywords for ${topic} (${keywords.length}):**\n`;
+            for (const k of keywords) {
+              const item = `\`${k}\`, `;
+              if (currentChunk.length + item.length > 1900) {
+                standardChunks.push(currentChunk);
+                currentChunk = ``;
+              }
+              currentChunk += item;
+            }
+            if (currentChunk) standardChunks.push(currentChunk);
+
+            await interaction.followUp({ content: `### Keywords for Topic Lane: **${topic}**`, ephemeral: true });
+            for (const chunk of standardChunks) {
+              await interaction.followUp({ content: chunk, ephemeral: true });
+            }
+
+            if (locationKeywords.length > 0) {
+              let locationChunks: string[] = [];
+              let curChunk = `**Location Keywords for ${topic} (${locationKeywords.length}):**\n`;
+              for (const k of locationKeywords) {
+                const item = `\`${k}\`, `;
+                if (curChunk.length + item.length > 1900) {
+                  locationChunks.push(curChunk);
+                  curChunk = ``;
+                }
+                curChunk += item;
+              }
+              if (curChunk) locationChunks.push(curChunk);
+
+              for (const chunk of locationChunks) {
+                await interaction.followUp({ content: chunk, ephemeral: true });
+              }
+            }
+
+            if (blockedTerms.length > 0) {
+              let negativeChunks: string[] = [];
+              let curChunk = `**Negative Keywords for ${topic} (${blockedTerms.length}):**\n`;
+              for (const k of blockedTerms) {
+                const item = `\`${k}\`, `;
+                if (curChunk.length + item.length > 1900) {
+                  negativeChunks.push(curChunk);
+                  curChunk = ``;
+                }
+                curChunk += item;
+              }
+              if (curChunk) negativeChunks.push(curChunk);
+
+              for (const chunk of negativeChunks) {
+                await interaction.followUp({ content: chunk, ephemeral: true });
+              }
+            }
+          } else {
+            await interaction.followUp({ content: topicContent, ephemeral: true });
+          }
+        }
+      } else {
+        await interaction.reply({
+          content: fullContent,
+          ephemeral: true
+        });
+      }
+      return;
+    }
   }
 
   // Auth gate for add / remove
@@ -1882,74 +2009,119 @@ export async function handleKeywordCommand(
   }
 
   if (subcommand === "add") {
-    const added: string[] = [];
-    const duplicates: string[] = [];
+    const addedMap: Record<string, string[]> = {};
+    const duplicatesMap: Record<string, string[]> = {};
+    const summaryLines: string[] = [];
+    let totalAdded = 0;
 
-    for (const kw of newKeywords) {
-      const standardExists = topicConfig.keywords.includes(kw);
-      const locationExists = (topicConfig.locationKeywords || []).includes(kw);
-      const negativeExists = (topicConfig.blockedTerms || []).includes(kw);
+    const updatedTopics = { ...appConfig.topics };
 
-      if (standardExists || locationExists || negativeExists) {
-        duplicates.push(kw);
-      } else {
-        added.push(kw);
-      }
-    }
+    for (const topic of targetTopics) {
+      const topicConfig = updatedTopics[topic];
+      const added: string[] = [];
+      const duplicates: string[] = [];
 
-    if (added.length === 0) {
-      let errorMsg = "";
-      if (duplicates.length === 1) {
-        const kw = duplicates[0];
+      for (const kw of newKeywords) {
         const standardExists = topicConfig.keywords.includes(kw);
         const locationExists = (topicConfig.locationKeywords || []).includes(kw);
         const negativeExists = (topicConfig.blockedTerms || []).includes(kw);
-        let typeLabel = "standard";
-        if (locationExists) typeLabel = "location";
-        if (negativeExists) typeLabel = "negative";
-        errorMsg = `❌ **Error:** The keyword \`${kw}\` already exists as a ${typeLabel} keyword for topic **${topic}**.`;
-      } else {
-        errorMsg = `❌ **Error:** The keyword(s) ${duplicates.map(d => `\`${d}\``).join(", ")} already exist for topic **${topic}**.`;
+
+        if (standardExists || locationExists || negativeExists) {
+          duplicates.push(kw);
+        } else {
+          added.push(kw);
+        }
       }
-      await interaction.reply({
-        content: errorMsg,
-        ephemeral: true
-      });
+
+      addedMap[topic] = added;
+      duplicatesMap[topic] = duplicates;
+
+      if (added.length > 0) {
+        const currentConfig = { ...topicConfig };
+        if (type === "standard") {
+          currentConfig.keywords = [...currentConfig.keywords, ...added];
+        } else if (type === "location") {
+          currentConfig.locationKeywords = [...(currentConfig.locationKeywords || []), ...added];
+        } else {
+          currentConfig.blockedTerms = [...(currentConfig.blockedTerms || []), ...added];
+        }
+        updatedTopics[topic] = currentConfig;
+        totalAdded += added.length;
+      }
+
+      let line = `• **${topic}**: `;
+      if (added.length > 0) {
+        line += `Added: ${added.map(k => `\`${k}\``).join(", ")}`;
+      } else {
+        line += `No new keywords added`;
+      }
+      if (duplicates.length > 0) {
+        line += ` (Skipped duplicate(s): ${duplicates.map(d => `\`${d}\``).join(", ")})`;
+      }
+      summaryLines.push(line);
+    }
+
+    if (totalAdded === 0) {
+      if (targetTopics.length === 1) {
+        const topic = targetTopics[0];
+        const duplicates = duplicatesMap[topic];
+        const topicConfig = appConfig.topics[topic];
+        let errorMsg = "";
+        if (duplicates.length === 1) {
+          const kw = duplicates[0];
+          const standardExists = topicConfig.keywords.includes(kw);
+          const locationExists = (topicConfig.locationKeywords || []).includes(kw);
+          const negativeExists = (topicConfig.blockedTerms || []).includes(kw);
+          let typeLabel = "standard";
+          if (locationExists) typeLabel = "location";
+          if (negativeExists) typeLabel = "negative";
+          errorMsg = `❌ **Error:** The keyword \`${kw}\` already exists as a ${typeLabel} keyword for topic **${topic}**.`;
+        } else {
+          errorMsg = `❌ **Error:** The keyword(s) ${duplicates.map(d => `\`${d}\``).join(", ")} already exist for topic **${topic}**.`;
+        }
+        await interaction.reply({
+          content: errorMsg,
+          ephemeral: true
+        });
+      } else {
+        await interaction.reply({
+          content: `❌ **Error:** No new keywords were added to any topics.\n${summaryLines.join("\n")}`,
+          ephemeral: true
+        });
+      }
       return;
     }
 
     try {
       await interaction.deferReply({ ephemeral: true });
 
-      const updatedTopics = { ...appConfig.topics };
-      const currentConfig = { ...updatedTopics[topic] };
-
-      if (type === "standard") {
-        currentConfig.keywords = [...currentConfig.keywords, ...added];
-      } else if (type === "location") {
-        currentConfig.locationKeywords = [...(currentConfig.locationKeywords || []), ...added];
-      } else {
-        currentConfig.blockedTerms = [...(currentConfig.blockedTerms || []), ...added];
-      }
-
-      updatedTopics[topic] = currentConfig;
-
       await saveTopicsConfig(updatedTopics);
       await reloadAppConfig(appConfig);
 
-      for (const kw of added) {
-        console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} added keyword "${kw}" (type: ${type}) to topic "${topic}"`);
+      for (const topic of targetTopics) {
+        const added = addedMap[topic];
+        for (const kw of added) {
+          console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} added keyword "${kw}" (type: ${type}) to topic "${topic}"`);
+        }
       }
 
       let msg = "";
-      if (added.length === 1) {
-        msg = `✅ Successfully added **${type}** keyword \`${added[0]}\` to topic **${topic}**.`;
+      if (targetTopics.length === 1) {
+        const topic = targetTopics[0];
+        const added = addedMap[topic];
+        const duplicates = duplicatesMap[topic];
+        if (added.length === 1) {
+          msg = `✅ Successfully added **${type}** keyword \`${added[0]}\` to topic **${topic}**.`;
+        } else {
+          msg = `✅ Successfully added **${type}** keyword(s): ${added.map(k => `\`${k}\``).join(", ")} to topic **${topic}**.`;
+        }
+        if (duplicates.length > 0) {
+          msg += ` (Skipped duplicate(s): ${duplicates.map(d => `\`${d}\``).join(", ")})`;
+        }
       } else {
-        msg = `✅ Successfully added **${type}** keyword(s): ${added.map(k => `\`${k}\``).join(", ")} to topic **${topic}**.`;
+        msg = `✅ **Successfully updated keywords (type: ${type}):**\n${summaryLines.join("\n")}`;
       }
-      if (duplicates.length > 0) {
-        msg += ` (Skipped duplicate(s): ${duplicates.map(d => `\`${d}\``).join(", ")})`;
-      }
+
       await interaction.editReply({
         content: msg
       });
@@ -1963,72 +2135,116 @@ export async function handleKeywordCommand(
 
 
   if (subcommand === "remove") {
-    const removed: string[] = [];
-    const missing: string[] = [];
+    const removedMap: Record<string, string[]> = {};
+    const missingMap: Record<string, string[]> = {};
+    const summaryLines: string[] = [];
+    let totalRemoved = 0;
 
-    for (const kw of newKeywords) {
-      let exists = false;
-      if (type === "standard") {
-        exists = topicConfig.keywords.includes(kw);
-      } else if (type === "location") {
-        exists = (topicConfig.locationKeywords || []).includes(kw);
-      } else {
-        exists = (topicConfig.blockedTerms || []).includes(kw);
+    const updatedTopics = { ...appConfig.topics };
+
+    for (const topic of targetTopics) {
+      const topicConfig = updatedTopics[topic];
+      const removed: string[] = [];
+      const missing: string[] = [];
+
+      for (const kw of newKeywords) {
+        let exists = false;
+        if (type === "standard") {
+          exists = topicConfig.keywords.includes(kw);
+        } else if (type === "location") {
+          exists = (topicConfig.locationKeywords || []).includes(kw);
+        } else {
+          exists = (topicConfig.blockedTerms || []).includes(kw);
+        }
+
+        if (exists) {
+          removed.push(kw);
+        } else {
+          missing.push(kw);
+        }
       }
 
-      if (exists) {
-        removed.push(kw);
-      } else {
-        missing.push(kw);
+      removedMap[topic] = removed;
+      missingMap[topic] = missing;
+
+      if (removed.length > 0) {
+        const currentConfig = { ...topicConfig };
+        if (type === "standard") {
+          currentConfig.keywords = currentConfig.keywords.filter(k => !removed.includes(k));
+        } else if (type === "location") {
+          currentConfig.locationKeywords = (currentConfig.locationKeywords || []).filter(k => !removed.includes(k));
+        } else {
+          currentConfig.blockedTerms = (currentConfig.blockedTerms || []).filter(k => !removed.includes(k));
+        }
+        updatedTopics[topic] = currentConfig;
+        totalRemoved += removed.length;
       }
+
+      let line = `• **${topic}**: `;
+      if (removed.length > 0) {
+        line += `Removed: ${removed.map(k => `\`${k}\``).join(", ")}`;
+      } else {
+        line += `No keywords removed`;
+      }
+      if (missing.length > 0) {
+        line += ` (Skipped non-existent(s): ${missing.map(m => `\`${m}\``).join(", ")})`;
+      }
+      summaryLines.push(line);
     }
 
-    if (removed.length === 0) {
-      let errorMsg = "";
-      if (missing.length === 1) {
-        errorMsg = `❌ **Error:** The keyword \`${missing[0]}\` does not exist as a **${type}** keyword for topic **${topic}**.`;
+    if (totalRemoved === 0) {
+      if (targetTopics.length === 1) {
+        const topic = targetTopics[0];
+        const missing = missingMap[topic];
+        let errorMsg = "";
+        if (missing.length === 1) {
+          errorMsg = `❌ **Error:** The keyword \`${missing[0]}\` does not exist as a **${type}** keyword for topic **${topic}**.`;
+        } else {
+          errorMsg = `❌ **Error:** The keyword(s) ${missing.map(m => `\`${m}\``).join(", ")} do not exist as **${type}** keywords for topic **${topic}**.`;
+        }
+        await interaction.reply({
+          content: errorMsg,
+          ephemeral: true
+        });
       } else {
-        errorMsg = `❌ **Error:** The keyword(s) ${missing.map(m => `\`${m}\``).join(", ")} do not exist as **${type}** keywords for topic **${topic}**.`;
+        await interaction.reply({
+          content: `❌ **Error:** No keywords were removed from any topics.\n${summaryLines.join("\n")}`,
+          ephemeral: true
+        });
       }
-      await interaction.reply({
-        content: errorMsg,
-        ephemeral: true
-      });
       return;
     }
 
     try {
       await interaction.deferReply({ ephemeral: true });
 
-      const updatedTopics = { ...appConfig.topics };
-      const currentConfig = { ...updatedTopics[topic] };
-
-      if (type === "standard") {
-        currentConfig.keywords = currentConfig.keywords.filter(k => !removed.includes(k));
-      } else if (type === "location") {
-        currentConfig.locationKeywords = (currentConfig.locationKeywords || []).filter(k => !removed.includes(k));
-      } else {
-        currentConfig.blockedTerms = (currentConfig.blockedTerms || []).filter(k => !removed.includes(k));
-      }
-
-      updatedTopics[topic] = currentConfig;
-
       await saveTopicsConfig(updatedTopics);
       await reloadAppConfig(appConfig);
 
-      for (const kw of removed) {
-        console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} removed keyword "${kw}" (type: ${type}) from topic "${topic}"`);
+      for (const topic of targetTopics) {
+        const removed = removedMap[topic];
+        for (const kw of removed) {
+          console.log(`[Keyword Audit] [${new Date().toISOString()}] User ${interaction.user.id} removed keyword "${kw}" (type: ${type}) from topic "${topic}"`);
+        }
       }
 
       let msg = "";
-      if (removed.length === 1) {
-        msg = `✅ Successfully removed **${type}** keyword \`${removed[0]}\` from topic **${topic}**.`;
+      if (targetTopics.length === 1) {
+        const topic = targetTopics[0];
+        const removed = removedMap[topic];
+        const missing = missingMap[topic];
+        if (removed.length === 1) {
+          msg = `✅ Successfully removed **${type}** keyword \`${removed[0]}\` from topic **${topic}**.`;
+        } else {
+          msg = `✅ Successfully removed **${type}** keyword(s): ${removed.map(k => `\`${k}\``).join(", ")} from topic **${topic}**.`;
+        }
+        if (missing.length > 0) {
+          msg += ` (Skipped non-existent(s): ${missing.map(m => `\`${m}\``).join(", ")})`;
+        }
       } else {
-        msg = `✅ Successfully removed **${type}** keyword(s): ${removed.map(k => `\`${k}\``).join(", ")} from topic **${topic}**.`;
+        msg = `✅ **Successfully updated keywords (type: ${type}):**\n${summaryLines.join("\n")}`;
       }
-      if (missing.length > 0) {
-        msg += ` (Skipped non-existent(s): ${missing.map(m => `\`${m}\``).join(", ")})`;
-      }
+
       await interaction.editReply({
         content: msg
       });
@@ -2039,7 +2255,6 @@ export async function handleKeywordCommand(
     }
     return;
   }
-
 }
 
 export async function handleRemoveArticleCommand(
