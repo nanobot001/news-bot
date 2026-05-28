@@ -130,12 +130,12 @@ The scorer handles this by separating:
 
 Location keyword points are only awarded if the article already has core topic context. A location-only match is recorded as ignored and receives no location score.
 
-### Team Sports Highlights Context Filtering
+### Team Sports Highlights & Trade Context Filtering
 
-For team-specific sports topics (e.g. `jays`, `raptors`), generic highlight keywords (such as `highlight`, `highlights`) can match very frequently on unrelated teams or players. To prevent this noise, the scorer enforces context filtering:
+For team-specific sports topics (e.g. `jays`, `raptors`), generic highlight keywords (such as `highlight`, `highlights`) and trade keywords (`trade`, `trades`) can match very frequently on unrelated teams or players. To prevent this noise, the scorer enforces context filtering:
 
-- Generic highlight keywords are only allowed to score if accompanied by at least one other team-specific or player-specific keyword for that topic.
-- If highlight keywords match but no team/player context matches, the highlight keywords are ignored and a skip reason is recorded.
+- Generic highlight and trade keywords are only allowed to score if accompanied by at least one other team-specific or player-specific keyword for that topic.
+- If highlight or trade keywords match but no team/player context matches, the conditional keywords are ignored and a skip reason is recorded.
 - General league topics (e.g., `nba`) are exempt from this requirement.
 
 ### Sources
@@ -340,8 +340,8 @@ If Discord deletion fails, the database status and audit log are left unchanged 
 
 Article scores are deterministic:
 
-- Title core keyword match: `+20` (Note: generic highlight keywords on team-specific topics are ignored unless team/player context is present)
-- Summary core keyword match: `+10` (Note: generic highlight keywords on team-specific topics are ignored unless team/player context is present)
+- Title core keyword match: `+20` (Note: generic highlight and trade keywords on team-specific topics are ignored unless team/player context is present)
+- Summary core keyword match: `+10` (Note: generic highlight and trade keywords on team-specific topics are ignored unless team/player context is present)
 - Title location keyword match: `+20`, only with core topic context
 - Summary location keyword match: `+10`, only with core topic context
 - Trusted source bonus: `+15`
