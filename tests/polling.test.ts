@@ -84,7 +84,7 @@ function createRssXml(
   link: string,
   guid: string,
   desc: string,
-  pubDate = "Sat, 23 May 2026 12:00:00 GMT"
+  pubDate = new Date().toUTCString()
 ): string {
   return `
 <rss version="2.0">
