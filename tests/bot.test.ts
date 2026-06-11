@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { closeSync, existsSync, openSync, rmSync } from "node:fs";
 import assert from "node:assert/strict";
 import test, { before, after } from "node:test";
+import cron from "node-cron";
 import { formatArticleEmbed, postArticleToChannel } from "../src/bot/postEmbed.js";
 import { normalizeRssItem } from "../src/normalization/normalizeRssItem.js";
 import type { NormalizedEvent } from "../src/normalization/normalizedEvent.js";
@@ -29,6 +30,7 @@ import {
   handleSourcesCommand,
   handleFavoritesCommand,
   handleUnfavoriteCommand,
+  handleTestdigestCommand,
   pingCommand,
   testfeedCommand,
   lastpostsCommand,
@@ -39,7 +41,8 @@ import {
   topicsCommand,
   sourcesCommand,
   favoritesCommand,
-  unfavoriteCommand
+  unfavoriteCommand,
+  testdigestCommand
 } from "../src/bot/commands.js";
 import type { AppConfig } from "../src/config/loadConfig.js";
 
@@ -63,6 +66,8 @@ before(async () => {
 
 after(async () => {
   console.log("Cleaning up bot test database...");
+  const tasks = cron.getTasks();
+  for (const t of tasks.values()) t.stop();
   await prisma.$disconnect();
   cleanUpTestFiles();
 });
@@ -115,8 +120,8 @@ test("Discord Embed Formatting", async (t) => {
       assert.equal(data.author?.name, "AnimeNewsNetwork");
       assert.equal(data.description, "A brand new anime adaptation is scheduled for next year.");
       assert.equal(data.color, 5793266); // 0x5865F2 in decimal
-      // Verify no footer in production
-      assert.equal(data.footer, undefined);
+      // Verify footer in production
+      assert.equal(data.footer?.text, "Topic: anime | Score: 75");
     } finally {
       process.env.NODE_ENV = originalEnv;
     }
@@ -142,7 +147,7 @@ test("Discord Embed Formatting", async (t) => {
       const data = embed.toJSON();
       
       assert.equal(data.title, "Marvel Movie Trailer");
-      assert.equal(data.footer?.text, "Score: 90 | Topic: movies (Dev Mode)");
+      assert.equal(data.footer?.text, "Topic: movies | Score: 90 (Dev Mode)");
     } finally {
       process.env.NODE_ENV = originalEnv;
     }
@@ -908,6 +913,61 @@ test("Slash Commands System", async (t) => {
     }
   });
 
+  await t.test("handleTestdigestCommand should execute test digest", async () => {
+    const originalManagerIds = process.env.BOT_MANAGER_USER_IDS;
+    process.env.BOT_MANAGER_USER_IDS = "test-user-123";
+
+    try {
+      let deferred = false;
+      let editedReply = false;
+      let replyContent = "";
+
+      const mockInteraction: any = {
+        user: { id: "test-user-123" },
+        options: {
+          getString: (name: string) => {
+            if (name === "topic") return "anime";
+            if (name === "intent") return "aggregate";
+            return null;
+          },
+          getBoolean: (name: string) => {
+            if (name === "post") return false;
+            return null;
+          }
+        },
+        deferReply: async (options: any) => {
+          deferred = true;
+          assert.equal(options?.ephemeral, true);
+        },
+        editReply: async (options: any) => {
+          editedReply = true;
+          replyContent = typeof options === "string" ? options : options.content;
+        }
+      };
+
+      const mockClient: any = {
+        channels: {
+          fetch: async () => ({
+            isTextBased: () => true,
+            send: async () => ({ id: "mock" })
+          })
+        }
+      };
+
+      const mockConfig: AppConfig = {
+        topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+        sources: { anime: [] }
+      };
+
+      await handleTestdigestCommand(mockInteraction, mockClient, mockConfig);
+      assert.ok(deferred);
+      assert.ok(editedReply);
+      assert.match(replyContent, /Digest execution complete/);
+    } finally {
+      process.env.BOT_MANAGER_USER_IDS = originalManagerIds;
+    }
+  });
+
   await t.test("handleRefreshCommand should execute refresh run", async () => {
     let deferred = false;
     let editedReply = false;
@@ -1130,9 +1190,23 @@ test("Slash Commands System", async (t) => {
 
     const mockConfig: AppConfig = {
       topics: {
-        anime: { channelId: "12345", keywords: ["magic", "goku"], blockedTerms: ["boring"], postThreshold: 70, emoji: "<:anime:9876>" }
+        anime: {
+          channelId: "12345",
+          keywords: ["magic", "goku"],
+          blockedTerms: ["boring"],
+          postThreshold: 70,
+          emoji: "<:anime:9876>",
+          intentRouting: {
+            discussion: { route: "digest_pending", digestSchedule: "0 21 * * *" }
+          }
+        }
       },
-      sources: { anime: [] }
+      sources: {
+        anime: [
+          { name: "Crunchyroll", url: "https://example.com/anime", trusted: true, intentDefault: "news" },
+          { name: "Reddit Anime", url: "https://reddit.com/r/anime/.rss", trusted: false, intentDefault: "discussion" }
+        ]
+      }
     };
 
     await handleTopicsCommand(mockInteraction, mockConfig);
@@ -1140,6 +1214,8 @@ test("Slash Commands System", async (t) => {
     assert.match(replyContent, /Configured News Topics/);
     assert.match(replyContent, /Emoji: <:anime:9876>/);
     assert.match(replyContent, /Threshold: `70`/);
+    assert.match(replyContent, /Sources \(2\) by intent: `discussion`: 1, `news`: 1/);
+    assert.match(replyContent, /Intent routing: `discussion` -> route: `digest_pending`, schedule: `0 21 \* \* \*`/);
     assert.match(replyContent, /Keywords \(2\): `magic`, `goku`/);
     assert.match(replyContent, /Blocked Terms \(1\): `boring`/);
   });
@@ -1195,11 +1271,21 @@ test("Slash Commands System", async (t) => {
     };
 
     const mockConfig: AppConfig = {
-      topics: { anime: { channelId: "123", keywords: [], blockedTerms: [], postThreshold: 0 } },
+      topics: {
+        anime: {
+          channelId: "123",
+          keywords: [],
+          blockedTerms: [],
+          postThreshold: 0,
+          intentRouting: {
+            aggregate: { route: "digest_pending", digestEligible: true, postThreshold: 50 }
+          }
+        }
+      },
       sources: {
         anime: [
-          { name: "Feed 1", url: "https://example.com/feed1", trusted: true },
-          { name: "Feed 2", url: "https://example.com/feed2", trusted: false }
+          { name: "Feed 1", url: "https://example.com/feed1", trusted: true, intentDefault: "official", routeHint: "immediate_post", tier: 1 },
+          { name: "Feed 2", url: "https://example.com/feed2", trusted: false, intentDefault: "discussion" }
         ]
       }
     };
@@ -1209,7 +1295,9 @@ test("Slash Commands System", async (t) => {
     assert.ok(editedReply);
     assert.match(replyContent, /Feed 1.*https:\/\/example.com\/feed1/);
     assert.match(replyContent, /Feed 2.*https:\/\/example.com\/feed2/);
-    assert.match(replyContent, /trusted/);
+    assert.match(replyContent, /Intent defaults: `discussion`: 1, `official`: 1/);
+    assert.match(replyContent, /Intent routing: `aggregate` -> route: `digest_pending`, threshold: `50`, digest: `yes`/);
+    assert.match(replyContent, /Feed 1.*trusted, intent: `official`, route hint: `immediate_post`, tier: `1`/);
   });
 
   await t.test("handleSourcesCommand should chunk long source lists", async () => {

@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import type { Client } from "discord.js";
+import { SnowflakeUtil, type Client } from "discord.js";
 import type { AppConfig } from "../config/loadConfig.js";
 import { fetchFeedItems } from "../ingestion/fetchFeeds.js";
 import { normalizeRssItem } from "../normalization/normalizeRssItem.js";
@@ -28,6 +28,60 @@ export type PollError = {
   source: string;
   message: string;
 };
+
+function getThreadInactiveLimitHours(): number {
+  const configured = process.env.THREAD_INACTIVE_LIMIT_HOURS
+    ? parseFloat(process.env.THREAD_INACTIVE_LIMIT_HOURS)
+    : 4;
+
+  return Number.isFinite(configured) && configured > 0 ? configured : 4;
+}
+
+function getThreadActivityTimestamp(thread: any): number {
+  if (typeof thread.lastMessage?.createdTimestamp === "number") {
+    return thread.lastMessage.createdTimestamp;
+  }
+
+  if (typeof thread.createdTimestamp === "number") {
+    return thread.createdTimestamp;
+  }
+
+  const activitySnowflake = thread.lastMessageId ?? thread.id;
+  if (activitySnowflake) {
+    try {
+      return SnowflakeUtil.timestampFrom(activitySnowflake);
+    } catch (_) {
+      // Fall through to a conservative "now" timestamp if the mock or API value is not a snowflake.
+    }
+  }
+
+  return Date.now();
+}
+
+async function archiveAndLockThread(threadChannel: any, reason: string): Promise<boolean> {
+  try {
+    await threadChannel.edit({
+      archived: true,
+      locked: true,
+      reason,
+    });
+    console.log(`[Thread Cleanup] Archived & locked thread: "${threadChannel.name}" (${threadChannel.id})`);
+    return true;
+  } catch (editErr: any) {
+    if (editErr.message === "Thread is archived" || editErr.code === 50083) {
+      await threadChannel.setArchived(false, "Unarchiving to lock");
+      await threadChannel.edit({
+        archived: true,
+        locked: true,
+        reason,
+      });
+      console.log(`[Thread Cleanup] Locked already-archived thread: "${threadChannel.name}" (${threadChannel.id})`);
+      return true;
+    }
+
+    throw editErr;
+  }
+}
 
 export function classifySkipStatus(reasons: string[]): ArticleStatus {
   if (reasons.some((reason) => reason.includes("exceeds max age"))) {
@@ -407,7 +461,7 @@ export async function pollNews(
               );
               counts[topic].posted++;
             }
-          } else if (routingResult.route === "digest_pending" || routingResult.route === "review_pending" || routingResult.route === "skip") {
+          } else if (routingResult.route === "digest_pending" || routingResult.route === "review_pending" || (routingResult.route === "skip" && filteringResult.shouldPost)) {
             if (!isDryRun) {
               await saveArticle(
                 event,
@@ -518,43 +572,157 @@ export async function runSinglePoll(client: Client, config: AppConfig): Promise<
 }
 
 /**
- * Scans for open threads that have been inactive for more than 24 hours.
+ * Scans for open story threads that have been inactive for longer than the configured limit.
  * Archives and locks them in Discord and updates their database status to CLOSED.
  */
-export async function archiveInactiveThreads(client: Client): Promise<void> {
+export async function archiveInactiveThreads(client: Client, config?: AppConfig): Promise<void> {
   try {
     const inactiveAnchors = await getInactiveStoryAnchors();
-    if (inactiveAnchors.length === 0) {
-      return;
-    }
-
-    const limitHours = process.env.THREAD_INACTIVE_LIMIT_HOURS 
-      ? parseFloat(process.env.THREAD_INACTIVE_LIMIT_HOURS) 
-      : 4;
+    const limitHours = getThreadInactiveLimitHours();
     const reason = `Story inactive for > ${limitHours} hours`;
 
-    console.log(`[Thread Cleanup] Found ${inactiveAnchors.length} inactive story threads to close.`);
+    if (inactiveAnchors.length > 0) {
+      console.log(`[Thread Cleanup] Found ${inactiveAnchors.length} inactive story threads to close.`);
+    }
 
     for (const anchor of inactiveAnchors) {
       if (!anchor.storyThreadId) continue;
 
+      let dbSuccess = false;
       try {
         const threadChannel = await client.channels.fetch(anchor.storyThreadId);
         if (threadChannel?.isThread()) {
-          // Lock and archive the thread
-          await threadChannel.setArchived(true, reason);
-          await threadChannel.setLocked(true, reason);
-          console.log(`[Thread Cleanup] Archived & locked thread: "${threadChannel.name}" (${threadChannel.id})`);
+          dbSuccess = await archiveAndLockThread(threadChannel, reason);
+        } else {
+          // Not a thread or couldn't be fetched as a thread, mark closed in DB
+          dbSuccess = true; 
         }
-      } catch (discordErr) {
-        console.warn(`[Thread Cleanup] Could not archive thread ${anchor.storyThreadId} in Discord (might already be deleted/archived):`, discordErr);
+      } catch (discordErr: any) {
+        if (discordErr.code === 10003) {
+          // Unknown Channel - already deleted
+          dbSuccess = true;
+        } else {
+          console.warn(`[Thread Cleanup] Could not archive thread ${anchor.storyThreadId} in Discord (permissions issue or API error):`, discordErr.message);
+        }
       }
 
-      // Mark the story anchor as CLOSED in database
-      await closeStoryAnchor(anchor.id, anchor.topic);
+      if (dbSuccess) {
+        // Mark the story anchor as CLOSED in database
+        await closeStoryAnchor(anchor.id, anchor.topic);
+      }
+    }
+
+    if (config) {
+      await archiveStaleActiveThreads(client, config, limitHours, reason);
     }
   } catch (err) {
     console.error(`[Thread Cleanup] Error during inactive threads archiving:`, err);
+  }
+}
+
+async function archiveStaleActiveThreads(
+  client: Client,
+  config: AppConfig,
+  limitHours: number,
+  reason: string
+): Promise<void> {
+  const channelIds = new Set(
+    Object.values(config.topics)
+      .map((topic) => topic.channelId)
+      .filter((channelId): channelId is string => Boolean(channelId))
+  );
+
+  if (channelIds.size === 0) {
+    return;
+  }
+
+  const cutoffMs = Date.now() - limitHours * 60 * 60 * 1000;
+  let archivedCount = 0;
+  const inspectedThreadIds = new Set<string>();
+
+  const guilds = (client as any).guilds?.cache?.values
+    ? Array.from((client as any).guilds.cache.values())
+    : [];
+
+  for (const guild of guilds) {
+    try {
+      const active = await (guild as any).channels.fetchActiveThreads();
+      for (const thread of active.threads.values()) {
+        inspectedThreadIds.add(thread.id);
+
+        if (!channelIds.has(thread.parentId)) {
+          continue;
+        }
+
+        if (thread.ownerId && client.user?.id && thread.ownerId !== client.user.id) {
+          continue;
+        }
+
+        if (getThreadActivityTimestamp(thread) >= cutoffMs) {
+          continue;
+        }
+
+        try {
+          if (await archiveAndLockThread(thread, reason)) {
+            archivedCount++;
+          }
+        } catch (threadErr: any) {
+          console.warn(
+            `[Thread Cleanup] Could not archive active thread ${thread.id} in channel ${thread.parentId}:`,
+            threadErr.message ?? threadErr
+          );
+        }
+      }
+    } catch (guildErr: any) {
+      console.warn(
+        `[Thread Cleanup] Could not fetch active guild threads:`,
+        guildErr.message ?? guildErr
+      );
+    }
+  }
+
+  for (const channelId of channelIds) {
+    try {
+      const channel: any = await client.channels.fetch(channelId);
+      if (!channel?.threads?.fetchActive) {
+        continue;
+      }
+
+      const active = await channel.threads.fetchActive();
+      for (const thread of active.threads.values()) {
+        if (inspectedThreadIds.has(thread.id)) {
+          continue;
+        }
+
+        if (thread.ownerId && client.user?.id && thread.ownerId !== client.user.id) {
+          continue;
+        }
+
+        if (getThreadActivityTimestamp(thread) >= cutoffMs) {
+          continue;
+        }
+
+        try {
+          if (await archiveAndLockThread(thread, reason)) {
+            archivedCount++;
+          }
+        } catch (threadErr: any) {
+          console.warn(
+            `[Thread Cleanup] Could not archive active thread ${thread.id} in channel ${channelId}:`,
+            threadErr.message ?? threadErr
+          );
+        }
+      }
+    } catch (channelErr: any) {
+      console.warn(
+        `[Thread Cleanup] Could not fetch active threads for channel ${channelId}:`,
+        channelErr.message ?? channelErr
+      );
+    }
+  }
+
+  if (archivedCount > 0) {
+    console.log(`[Thread Cleanup] Archived ${archivedCount} stale active bot-owned thread(s) from configured channels.`);
   }
 }
 
@@ -581,7 +749,7 @@ export function startScheduler(client: Client, config: AppConfig): cron.Schedule
     isPolling = true;
     try {
       await runSinglePoll(client, config);
-      await archiveInactiveThreads(client);
+      await archiveInactiveThreads(client, config);
     } catch (err) {
       console.error(
         `[News Poll] Critical error in polling scheduler run: ${err instanceof Error ? err.message : String(err)}`

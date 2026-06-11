@@ -17,7 +17,9 @@ import {
   getInactiveStoryAnchors,
   closeStoryAnchor
 } from "../src/storage/articleRepo.js";
+import { archiveInactiveThreads } from "../src/jobs/pollNews.js";
 import { ARTICLE_STATUSES } from "../src/storage/articleStatus.js";
+import type { AppConfig } from "../src/config/loadConfig.js";
 import type { NormalizedEvent } from "../src/normalization/normalizedEvent.js";
 
 before(async () => {
@@ -169,5 +171,70 @@ test("Similarity Clustering Database Operations", async (t) => {
       where: { id_topic: { id: "parent-inactive", topic: "sports" } }
     });
     assert.equal(closed?.statusReason, "CLOSED");
+  });
+
+  await t.test("should archive stale active bot-owned threads even when the DB anchor is already closed", async () => {
+    await prisma.article.deleteMany({});
+
+    const staleThread = {
+      id: "thread-orphan",
+      name: "Orphaned stale story",
+      parentId: "news-channel",
+      ownerId: "bot-user",
+      createdTimestamp: Date.now() - 6 * 60 * 60 * 1000,
+      editPayload: null as any,
+      async edit(payload: any) {
+        this.editPayload = payload;
+      },
+    };
+
+    const config: AppConfig = {
+      topics: {
+        news: {
+          channelId: "news-channel",
+          postThreshold: 10,
+          keywords: [],
+          blockedTerms: [],
+        },
+      },
+      sources: {
+        news: [],
+      },
+    };
+
+    const mockClient = {
+      user: { id: "bot-user" },
+      guilds: {
+        cache: new Map([
+          [
+            "guild-1",
+            {
+              channels: {
+                fetchActiveThreads: async () => ({
+                  threads: new Map([[staleThread.id, staleThread]]),
+                }),
+              },
+            },
+          ],
+        ]),
+      },
+      channels: {
+        fetch: async (channelId: string) => {
+          assert.equal(channelId, "news-channel");
+          return {
+            threads: {
+              fetchActive: async () => ({
+                threads: new Map(),
+              }),
+            },
+          };
+        },
+      },
+    } as any;
+
+    await archiveInactiveThreads(mockClient, config);
+
+    assert.equal(staleThread.editPayload.archived, true);
+    assert.equal(staleThread.editPayload.locked, true);
   });
 });

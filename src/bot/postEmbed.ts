@@ -79,12 +79,11 @@ export function formatArticleEmbed(input: ArticleEmbedInput): EmbedBuilder {
     }
   }
 
-  if (process.env.NODE_ENV === "development") {
-    const intentStr = input.intent ? ` | Intent: ${input.intent}` : "";
-    embed.setFooter({
-      text: `Score: ${score} | Topic: ${event.topic}${intentStr} (Dev Mode)`
-    });
-  }
+  const intentStr = input.intent ? ` | Intent: ${input.intent}` : "";
+  const devStr = process.env.NODE_ENV === "development" ? " (Dev Mode)" : "";
+  embed.setFooter({
+    text: `Topic: ${event.topic} | Score: ${score}${intentStr}${devStr}`
+  });
 
   return embed;
 }

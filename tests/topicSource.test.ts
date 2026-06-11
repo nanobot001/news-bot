@@ -202,6 +202,8 @@ test("Topic Management Command Suite", async (t) => {
       await handleTopicCommand(interaction, appConfig);
       assert.ok(replied);
       assert.match(replyContent, /Topic Lane: \*\*anime\*\*/);
+      assert.match(replyContent, /Sources \(1\) by Intent:\*\* `auto`: 1/);
+      assert.match(replyContent, /Intent Routing:\*\* \*Default routing\*/);
       assert.match(replyContent, /Crunchyroll/);
     } finally {
       process.env.BOT_MANAGER_USER_IDS = originalEnv;
@@ -581,6 +583,8 @@ test("Source Management Command Suite", async (t) => {
       assert.ok(edited);
       assert.match(editContent, /Crunchyroll/);
       assert.match(editContent, /TRUSTED/);
+      assert.match(editContent, /Intent defaults: `auto`: 1/);
+      assert.match(editContent, /intent: `auto`/);
     } finally {
       process.env.BOT_MANAGER_USER_IDS = originalEnv;
     }

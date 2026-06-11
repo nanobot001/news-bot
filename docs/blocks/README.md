@@ -6,10 +6,10 @@ Keep active, not-yet-implemented blocks directly in this folder. Move completed 
 
 ## Active Block Queue
 
-1. `block-2-8-intent-based-digests.md`: Scheduled digest lanes by topic and content intent for lower-urgency items.
-2. `block-2-9-posting-frequency-controls.md`: Per-topic, per-source, and per-intent cooldowns and posting caps.
-3. `block-2-11-sports-schedule-event-phase.md`: Blue Jays and Raptors sports team context with cached season schedules and event phase routing.
-4. `block-2-12-assisted-event-context-discovery.md`: Manager-approved discovery of event contexts for topics such as AI, gaming, conferences, elections, and product launches.
+1. `block-2-9-posting-frequency-controls.md`: Per-topic, per-source, and per-intent cooldowns and posting caps.
+2. `block-2-11-sports-schedule-event-phase.md`: Blue Jays and Raptors sports team context with cached season schedules and event phase routing.
+3. `block-2-12-assisted-event-context-discovery.md`: Manager-approved discovery of event contexts for topics such as AI, gaming, conferences, elections, and product launches.
+4. `block-2-13-story-signal-clustering.md`: Topic-agnostic story signal extraction and clustering so related coverage can attach by story meaning instead of only title word overlap.
 
 ## Future Candidate Blocks
 
@@ -43,4 +43,5 @@ Completed block tickets live in `docs/blocks/completed/`.
 5. `completed/block-2-5-topic-keyword-management.md`: Unified `/keyword` command for full keyword inspection plus bot-manager add/remove operations that persist to config.
 6. `completed/block-2-6-content-intent-routing.md`: Deterministic content intent classification and editorial routing for immediate, thread, digest, review, and skip lanes.
 7. `completed/block-2-7-similarity-clustering.md`: In-memory Jaccard similarity grouping on title tokens and appending related coverage links to existing embeds.
-8. `completed/block-2-10-manual-article-removal.md`: Message context menu commands, modals, article retraction, and culprit keyword diagnostic audit logs.
+8. `completed/block-2-8-intent-based-digests.md`: Scheduled digest lanes by topic and content intent for lower-urgency items.
+9. `completed/block-2-10-manual-article-removal.md`: Message context menu commands, modals, article retraction, and culprit keyword diagnostic audit logs.

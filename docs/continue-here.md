@@ -1,5 +1,20 @@
 # Continue Here
 
+## 2026-06-11 (Block 2-8 Intent-Based Digests Implemented)
+
+Current state:
+- Completed Block 2-8 and moved it to `docs/blocks/completed/block-2-8-intent-based-digests.md`.
+- Wrote automated tests for `digestPublisher.ts` in `tests/digestPublisher.test.ts`.
+- Wrote automated tests for `/testdigest` command in `tests/bot.test.ts`.
+- Reorganized block documentation.
+- Verification passed: `npm run build` and `npm test` execute successfully.
+
+Next step:
+- Implement Block 2-9 (`docs/blocks/block-2-9-posting-frequency-controls.md`) to add cooldowns and posting caps.
+
+Do-not-forget checks:
+- Maintain deterministic behavior for cooldown evaluations before exploring AI.
+
 ## 2026-06-10 (Block 2-6 Content Intent Routing Implemented)
 
 Current state:

@@ -39,6 +39,7 @@ export async function findDuplicateArticle(
         // 1. Duplicate within the current topic (posted or not)
         {
           topic,
+          firstSeenAt: { gte: cutoff },
           OR: conditions,
         },
         // 2. Duplicate in sibling topics that share the same channel, but only if actually posted
@@ -47,6 +48,7 @@ export async function findDuplicateArticle(
               {
                 topic: { in: targetTopics },
                 postedAt: { not: null },
+                firstSeenAt: { gte: cutoff },
                 OR: conditions,
               },
             ]

@@ -13,7 +13,7 @@ import {
   type MessageContextMenuCommandInteraction,
   type ModalSubmitInteraction
 } from "discord.js";
-import { type AppConfig, reloadAppConfig, saveTopicsConfig, saveSourcesConfig } from "../config/loadConfig.js";
+import { type AppConfig, type IntentRoutingPolicy, reloadAppConfig, saveTopicsConfig, saveSourcesConfig } from "../config/loadConfig.js";
 import { getArticlesForTopic, getFavorites, deleteFavoriteById, getCurationLogs, saveArticle } from "../storage/articleRepo.js";
 import { pollNews, classifySkipStatus } from "../jobs/pollNews.js";
 import { startDigestSchedulers, publishDigestForLane } from "../jobs/digestPublisher.js";
@@ -64,6 +64,59 @@ function chunkLines(header: string, lines: string[], limit = DISCORD_SAFE_MESSAG
   }
 
   return chunks.map(chunk => chunk.length > DISCORD_MESSAGE_LIMIT ? chunk.slice(0, DISCORD_MESSAGE_LIMIT) : chunk);
+}
+
+function formatIntentPolicy(intent: string, policy: IntentRoutingPolicy): string {
+  const details = [`route: \`${policy.route}\``];
+  if (policy.postThreshold !== undefined) {
+    details.push(`threshold: \`${policy.postThreshold}\``);
+  }
+  if (policy.digestEligible !== undefined) {
+    details.push(`digest: \`${policy.digestEligible ? "yes" : "no"}\``);
+  }
+  if (policy.digestSchedule) {
+    details.push(`schedule: \`${policy.digestSchedule}\``);
+  }
+  return `\`${intent}\` -> ${details.join(", ")}`;
+}
+
+function formatIntentPolicies(intentRouting: AppConfig["topics"][string]["intentRouting"]): string {
+  if (!intentRouting || Object.keys(intentRouting).length === 0) {
+    return "*Default routing*";
+  }
+
+  return Object.entries(intentRouting)
+    .map(([intent, policy]) => formatIntentPolicy(intent, policy))
+    .join("; ");
+}
+
+function getSourceIntentBreakdown(sources: AppConfig["sources"][string]): string {
+  if (sources.length === 0) {
+    return "*No sources*";
+  }
+
+  const counts = new Map<string, number>();
+  for (const source of sources) {
+    const intent = source.intentDefault ?? "auto";
+    counts.set(intent, (counts.get(intent) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([intent, count]) => `\`${intent}\`: ${count}`)
+    .join(", ");
+}
+
+function formatSourceIntentDetails(source: AppConfig["sources"][string][number]): string {
+  const details = [source.trusted ? "trusted" : "untrusted"];
+  details.push(`intent: \`${source.intentDefault ?? "auto"}\``);
+  if (source.routeHint) {
+    details.push(`route hint: \`${source.routeHint}\``);
+  }
+  if (source.tier !== undefined) {
+    details.push(`tier: \`${source.tier}\``);
+  }
+  return details.join(", ");
 }
 
 
@@ -1009,6 +1062,9 @@ export async function handleTopicsCommand(
         responseText += `  * Emoji: ${settings.emoji}\n`;
       }
       responseText += `  * Threshold: \`${settings.postThreshold}\`\n`;
+      const topicSources = appConfig.sources[topic] || [];
+      responseText += `  * Sources (${topicSources.length}) by intent: ${getSourceIntentBreakdown(topicSources)}\n`;
+      responseText += `  * Intent routing: ${formatIntentPolicies(settings.intentRouting)}\n`;
 
       const maxKeywordsToShow = 10;
       let keywordsStr = settings.keywords.slice(0, maxKeywordsToShow).map(k => `\`${k}\``).join(", ");
@@ -1074,9 +1130,10 @@ export async function handleSourcesCommand(
     for (const t of targetTopics) {
       const feeds = appConfig.sources[t] || [];
       list.push(`**Topic: ${t}** (${feeds.length} feeds):`);
+      list.push(`Intent defaults: ${getSourceIntentBreakdown(feeds)}`);
+      list.push(`Intent routing: ${formatIntentPolicies(appConfig.topics[t]?.intentRouting)}`);
       for (const feed of feeds) {
-        const trustedStr = feed.trusted ? " 🌟(trusted)" : "";
-        list.push(`- _${feed.name}_: <${feed.url}>${trustedStr}`);
+        list.push(`- _${feed.name}_ (${formatSourceIntentDetails(feed)}): <${feed.url}>`);
       }
       list.push("");
     }
@@ -1479,6 +1536,8 @@ export async function handleTopicCommand(
       `- **Channel:** <#${config.channelId}>\n` +
       `- **Post Threshold:** ${config.postThreshold}\n` +
       `- **Emoji Prefix:** ${emojiPrefix}\n` +
+      `- **Sources (${sources.length}) by Intent:** ${getSourceIntentBreakdown(sources)}\n` +
+      `- **Intent Routing:** ${formatIntentPolicies(config.intentRouting)}\n` +
       `- **Keywords (${config.keywords.length}):** ${config.keywords.join(", ") || "none"}\n` +
       locationsStr +
       `- **Blocked Terms (${config.blockedTerms.length}):** ${config.blockedTerms.join(", ") || "none"}\n` +
@@ -1708,9 +1767,16 @@ export async function handleSourceCommand(
 
       const list = sources.map((s, index) => {
         const trustWord = s.trusted ? "[TRUSTED]" : "[UNTRUSTED]";
-        return `${index + 1}. **${s.name}** - ${trustWord} - <${s.url}>`;
+        const intentParts = [`intent: \`${s.intentDefault ?? "auto"}\``];
+        if (s.routeHint) {
+          intentParts.push(`route hint: \`${s.routeHint}\``);
+        }
+        if (s.tier !== undefined) {
+          intentParts.push(`tier: \`${s.tier}\``);
+        }
+        return `${index + 1}. **${s.name}** - ${trustWord} - ${intentParts.join(", ")} - <${s.url}>`;
       });
-      const header = `### Sources for Topic lane **${topic}** (${sources.length})\n`;
+      const header = `### Sources for Topic lane **${topic}** (${sources.length})\nIntent defaults: ${getSourceIntentBreakdown(sources)}\nIntent routing: ${formatIntentPolicies(appConfig.topics[topic]?.intentRouting)}\n`;
       const chunks = chunkLines(header, list);
 
       await interaction.editReply({ content: chunks[0] });
