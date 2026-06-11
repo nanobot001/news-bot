@@ -97,6 +97,17 @@ export async function pollNews(
         for (const item of result.items) {
           counts[topic].checked++;
           const event = normalizeRssItem({ topic, source, item });
+          // Pre-filter: Ignore YouTube Shorts completely as they often resurface old content.
+          if (event.url && event.url.includes("youtube.com/shorts/")) {
+            counts[topic].skipped++;
+            continue;
+          }
+
+          // Pre-filter: Ignore YouTube items that have no valid publish date to prevent RSSHub from pushing ancient videos.
+          if (!event.publishedAt && event.url && event.url.includes("youtube.com")) {
+            counts[topic].skipped++;
+            continue;
+          }
 
           // Pre-filter: If the article publication date is older than DEDUPE_WINDOW_DAYS, ignore it entirely without database hits/writes.
           if (event.publishedAt) {
