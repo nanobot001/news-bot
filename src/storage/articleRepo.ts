@@ -35,7 +35,6 @@ export async function findDuplicateArticle(
 
   const existing = await prisma.article.findFirst({
     where: {
-      firstSeenAt: { gte: cutoff },
       OR: [
         // 1. Duplicate within the current topic (posted or not)
         {
@@ -88,7 +87,13 @@ export async function saveArticle(
   anchorId?: string | null,
   anchorTopic?: string | null,
   storyThreadId?: string | null,
-  lastStoryAddedAt?: Date | null
+  lastStoryAddedAt?: Date | null,
+  routingMetadata?: {
+    intent: string;
+    intentConfidence: number;
+    route: string;
+    routeReason: string;
+  }
 ): Promise<Article> {
   const urlHash = event.url ? sha256(normalizeUrl(event.url)) : null;
   const titleHash = sha256(normalizeTitle(event.title));
@@ -119,6 +124,10 @@ export async function saveArticle(
       anchorTopic: anchorTopic !== undefined ? anchorTopic : undefined,
       storyThreadId: storyThreadId !== undefined ? storyThreadId : undefined,
       lastStoryAddedAt: lastStoryAddedAt !== undefined ? lastStoryAddedAt : undefined,
+      intent: routingMetadata?.intent !== undefined ? routingMetadata.intent : undefined,
+      intentConfidence: routingMetadata?.intentConfidence !== undefined ? routingMetadata.intentConfidence : undefined,
+      route: routingMetadata?.route !== undefined ? routingMetadata.route : undefined,
+      routeReason: routingMetadata?.routeReason !== undefined ? routingMetadata.routeReason : undefined,
     },
     create: {
       id: event.id,
@@ -140,6 +149,10 @@ export async function saveArticle(
       anchorTopic: anchorTopic ?? null,
       storyThreadId: storyThreadId ?? null,
       lastStoryAddedAt: lastStoryAddedAt ?? null,
+      intent: routingMetadata?.intent ?? null,
+      intentConfidence: routingMetadata?.intentConfidence ?? null,
+      route: routingMetadata?.route ?? null,
+      routeReason: routingMetadata?.routeReason ?? null,
     },
   });
 }
@@ -641,7 +654,44 @@ export async function getInactiveStoryAnchors(inactiveThresholdMs?: number): Pro
   });
 }
 
+/**
+ * Retrieves pending digest articles for a specific topic and intent lane.
+ */
+export async function getPendingDigestArticles(
+  topic: string,
+  intent: string,
+  limit: number = 25
+): Promise<Article[]> {
+  return prisma.article.findMany({
+    where: {
+      topic,
+      intent,
+      status: ARTICLE_STATUSES.DIGEST_PENDING,
+    },
+    orderBy: { score: "desc" },
+    take: limit,
+  });
+}
 
-
-
-
+/**
+ * Marks multiple articles as posted digest.
+ */
+export async function markArticlesAsPostedDigest(
+  ids: string[],
+  topic: string,
+  messageId: string,
+  channelId: string
+): Promise<void> {
+  await prisma.article.updateMany({
+    where: {
+      id: { in: ids },
+      topic,
+    },
+    data: {
+      status: ARTICLE_STATUSES.POSTED_DIGEST,
+      postedAt: new Date(),
+      discordMessageId: messageId,
+      discordChannelId: channelId,
+    },
+  });
+}

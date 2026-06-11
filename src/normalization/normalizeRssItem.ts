@@ -138,7 +138,14 @@ export const normalizeRssItem: NormalizeRssItem = ({ topic, source, item }) => {
   const preferredId = cleanOptionalString(item.guid) ?? cleanOptionalString(item.link);
   const id = preferredId ?? `${source.name}:${rawTitle}`;
 
-  const publishedAt = cleanOptionalString(item.pubDate);
+  const rawPublishedAt = cleanOptionalString(item.pubDate);
+  let publishedAt: string | undefined = undefined;
+  if (rawPublishedAt) {
+    const parsedDate = new Date(rawPublishedAt);
+    if (!isNaN(parsedDate.getTime())) {
+      publishedAt = rawPublishedAt;
+    }
+  }
   const summary = cleanOptionalString(item.contentSnippet);
 
   const rawItem = (item.raw ?? item) as any;
