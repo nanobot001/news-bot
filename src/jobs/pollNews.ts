@@ -97,17 +97,6 @@ export async function pollNews(
         for (const item of result.items) {
           counts[topic].checked++;
           const event = normalizeRssItem({ topic, source, item });
-          // Pre-filter: Ignore YouTube Shorts completely as they often resurface old content.
-          if (event.url && event.url.includes("youtube.com/shorts/")) {
-            counts[topic].skipped++;
-            continue;
-          }
-
-          // Pre-filter: Ignore YouTube items that have no valid publish date to prevent RSSHub from pushing ancient videos.
-          if (!event.publishedAt && event.url && event.url.includes("youtube.com")) {
-            counts[topic].skipped++;
-            continue;
-          }
 
           // Pre-filter: If the article publication date is older than DEDUPE_WINDOW_DAYS, ignore it entirely without database hits/writes.
           if (event.publishedAt) {
@@ -147,6 +136,39 @@ export async function pollNews(
               }
             } catch (err) {
               console.warn(`[News Poll] Failed to decode Google News URL ${event.url}:`, err);
+            }
+          }
+
+          // Deep verification for YouTube videos to find the TRUE publish date.
+          // This prevents YouTube's algorithm from resurfacing ancient videos with today's date.
+          if (event.url && (event.url.includes("youtube.com") || event.url.includes("youtu.be"))) {
+            try {
+              const ytResp = await fetch(event.url, {
+                headers: {
+                  "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                  "accept-language": "en-US,en;q=0.9"
+                },
+                signal: AbortSignal.timeout(8000)
+              });
+              if (ytResp.ok) {
+                const ytHtml = await ytResp.text();
+                const match = ytHtml.match(/<meta itemprop="datePublished" content="([^"]+)"/);
+                if (match && match[1]) {
+                  const truePubDate = new Date(match[1]);
+                  if (!isNaN(truePubDate.getTime())) {
+                    event.publishedAt = truePubDate.toISOString();
+                    const dedupeWindowDays = process.env.DEDUPE_WINDOW_DAYS ? parseInt(process.env.DEDUPE_WINDOW_DAYS, 10) : 7;
+                    const maxAgeMs = dedupeWindowDays * 24 * 60 * 60 * 1000;
+                    if (Date.now() - truePubDate.getTime() > maxAgeMs) {
+                      console.log(`[News Poll] Skipping old YouTube video ${event.url} (true publish date: ${event.publishedAt})`);
+                      counts[topic].skipped++;
+                      continue;
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn(`[News Poll] Failed to fetch true YouTube date for ${event.url}`, err);
             }
           }
 
