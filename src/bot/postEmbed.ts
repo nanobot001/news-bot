@@ -1,10 +1,13 @@
 import { EmbedBuilder, type Client, type TextBasedChannel, type Message } from "discord.js";
 import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
+import type { Article } from "@prisma/client";
+import type { TopicConfig } from "../config/loadConfig.js";
 
 export type ArticleEmbedInput = {
   event: NormalizedEvent;
   score: number;
   emoji?: string;
+  intent?: string;
 };
 
 /**
@@ -77,8 +80,9 @@ export function formatArticleEmbed(input: ArticleEmbedInput): EmbedBuilder {
   }
 
   if (process.env.NODE_ENV === "development") {
+    const intentStr = input.intent ? ` | Intent: ${input.intent}` : "";
     embed.setFooter({
-      text: `Score: ${score} | Topic: ${event.topic} (Dev Mode)`
+      text: `Score: ${score} | Topic: ${event.topic}${intentStr} (Dev Mode)`
     });
   }
 
@@ -101,4 +105,39 @@ export async function postArticleToChannel(
     throw new Error(`Channel is not text-based: ${channelId}`);
   }
   return await (channel as any).send({ embeds: [embed] });
+}
+
+/**
+ * Formats a list of digest articles into a single compact Discord Embed.
+ */
+export function formatDigestEmbed(
+  articles: Article[],
+  topicConfig: TopicConfig,
+  topic: string,
+  intent: string
+): EmbedBuilder {
+  const emojiStr = topicConfig.emoji ? `${topicConfig.emoji} ` : "";
+  const title = `${emojiStr}Digest: ${topic} - ${intent.toUpperCase()}`;
+  
+  const embed = new EmbedBuilder()
+    .setTitle(title)
+    .setColor(0x2B2D31); // Dark theme secondary background for a muted digest look
+
+  const lines: string[] = [];
+  for (const art of articles) {
+    const titleText = art.title.replace(/\[/g, "\\[").replace(/\]/g, "\\]"); // escape markdown brackets
+    const link = art.url ? `[${titleText}](${art.url})` : titleText;
+    const scoreStr = art.score !== null ? ` (Score: ${art.score})` : "";
+    lines.push(`• ${link} - *${art.source}*${scoreStr}`);
+  }
+
+  // Discord description limits to 4096 characters
+  let description = lines.join("\n");
+  if (description.length > 4000) {
+    description = description.slice(0, 4000) + "\n...and more.";
+  }
+
+  embed.setDescription(description);
+
+  return embed;
 }

@@ -7,9 +7,10 @@ import { checkDuplicate } from "../processing/dedupe.js";
 import { scoreArticle } from "../processing/scoreArticle.js";
 import { filterArticle } from "../processing/filterArticle.js";
 import { saveArticle, pruneOldArticles, saveCurationLog, getActiveAnchors, setStoryThreadId, updateLastStoryAddedAt, getInactiveStoryAnchors, closeStoryAnchor } from "../storage/articleRepo.js";
-import { ARTICLE_STATUSES, type ArticleStatus } from "../storage/articleStatus.js";
+import { ARTICLE_STATUSES, type ArticleStatus, routeToPendingStatus } from "../storage/articleStatus.js";
 import { formatArticleEmbed, postArticleToChannel } from "../bot/postEmbed.js";
 import { calculateJaccardSimilarity, cleanThreadTitle } from "../processing/similarity.js";
+import { classifyContentIntent, decideContentRoute } from "../processing/contentRouting.js";
 import { acquireLock, releaseLock } from "../utils/lock.js";
 import { decodeGoogleNewsUrl } from "../utils/googleNewsResolver.js";
 import { scrapeOgImage } from "../utils/ogImageScraper.js";
@@ -42,9 +43,14 @@ export function classifySkipStatus(reasons: string[]): ArticleStatus {
 
 function determineCurationStatus(
   shouldPost: boolean,
+  route: string,
   scoreReasons: string[],
   filterReasons: string[]
 ): string {
+  if (route === "digest_pending") return "DIGEST_PENDING";
+  if (route === "review_pending") return "REVIEW_PENDING";
+  if (route === "skip") return "SKIPPED_INTENT";
+  
   if (shouldPost) return "POSTED";
   if (scoreReasons.some((r) => r.includes("Blocked term matched"))) return "SKIPPED_BLOCKED";
   if (filterReasons.some((r) => r.includes("cooldown") || r.includes("throttled"))) return "DEFERRED_COOLDOWN";
@@ -142,18 +148,45 @@ export async function pollNews(
             trustedSource: source.trusted,
           });
 
+          const intentClassification = classifyContentIntent(event, source);
+          const routingThreshold = topicConfig.intentRouting?.[intentClassification.intent]?.postThreshold ?? topicConfig.postThreshold;
           const maxAgeHours = process.env.MAX_ARTICLE_AGE_HOURS ? parseInt(process.env.MAX_ARTICLE_AGE_HOURS, 10) : 24;
           const filteringResult = filterArticle({
             score: scoringResult.score,
-            threshold: topicConfig.postThreshold,
+            threshold: routingThreshold,
             isDuplicate: false,
             publishedAt: event.publishedAt,
             maxAgeHours,
           });
+          const routingResult = {
+            ...intentClassification,
+            ...decideContentRoute({
+              classification: intentClassification,
+              topicConfig,
+              source,
+              score: scoringResult.score,
+              filterAllowsPost: filteringResult.shouldPost,
+              filterReasons: filteringResult.reasons,
+            }),
+          };
+          const routingMetadata = {
+            intent: routingResult.intent,
+            intentConfidence: routingResult.confidence,
+            route: routingResult.route,
+            routeReason: routingResult.reason,
+          };
+          const curationBreakdown = [
+            ...scoringResult.reasons,
+            ...filteringResult.reasons,
+            `Intent classified as ${routingResult.intent} (${routingResult.confidence.toFixed(2)})`,
+            ...routingResult.reasons.map((reason) => `Routing: ${reason}`),
+            `Selected route ${routingResult.route}: ${routingResult.reason}`,
+          ];
 
           const isDryRun = forceDryRun || process.env.DRY_RUN === "true";
           const curationStatus = determineCurationStatus(
             filteringResult.shouldPost,
+            routingResult.route,
             scoringResult.reasons,
             filteringResult.reasons
           );
@@ -166,16 +199,16 @@ export async function pollNews(
               topic: event.topic,
               status: curationStatus,
               score: scoringResult.score,
-              breakdown: scoringResult.reasons,
+              breakdown: curationBreakdown,
             }).catch((err) => {
               console.error(`Failed to save curation log:`, err);
             });
           }
 
-          if (filteringResult.shouldPost) {
+          if (routingResult.route === "immediate_post" || routingResult.route === "thread_only") {
             counts[topic].eligible!++;
             if (isDryRun) {
-              console.log(`[Dry Run] Would post article: "${event.title}" to channel: ${topicConfig.channelId}`);
+              console.log(`[Dry Run] Would route article: "${event.title}" as ${routingResult.route}`);
               counts[topic].skipped++;
             } else {
               // Scrape the OG image from the resolved URL if no image is present
@@ -261,7 +294,7 @@ export async function pollNews(
                   try {
                     const threadChannel = await client.channels.fetch(threadId);
                     if (threadChannel?.isTextBased()) {
-                      const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji });
+                      const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji, intent: routingResult.intent });
                       const threadMsg = await (threadChannel as any).send({ embeds: [embed] });
 
                       // Save as RELATED_COVERAGE child
@@ -274,7 +307,10 @@ export async function pollNews(
                         threadMsg?.id,
                         threadId,
                         bestAnchor.id,
-                        bestAnchor.topic
+                        bestAnchor.topic,
+                        null,
+                        null,
+                        routingMetadata
                       );
 
                       // Update anchor's lastStoryAddedAt
@@ -288,8 +324,31 @@ export async function pollNews(
                 }
               }
 
+              if (routingResult.route === "thread_only") {
+                await saveArticle(
+                  event,
+                  scoringResult.score,
+                  null,
+                  ARTICLE_STATUSES.DIGEST_PENDING,
+                  "No related active story thread found for thread-only discussion item",
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  undefined,
+                  {
+                    ...routingMetadata,
+                    route: "digest_pending",
+                    routeReason: "No related active story thread found for thread-only discussion item",
+                  }
+                );
+                counts[topic].skipped++;
+                continue;
+              }
+
               // 3. Fallback or standard post: post as standalone article
-              const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji });
+              const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji, intent: routingResult.intent });
               const message = await postArticleToChannel(client, topicConfig.channelId, embed);
               await saveArticle(
                 event,
@@ -298,10 +357,35 @@ export async function pollNews(
                 ARTICLE_STATUSES.POSTED,
                 undefined,
                 message?.id,
-                message?.channelId
+                message?.channelId,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                routingMetadata
               );
               counts[topic].posted++;
             }
+          } else if (routingResult.route === "digest_pending" || routingResult.route === "review_pending" || routingResult.route === "skip") {
+            if (!isDryRun) {
+              await saveArticle(
+                event,
+                scoringResult.score,
+                null,
+                routeToPendingStatus(routingResult.route, filteringResult.reasons),
+                routingResult.reason,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                routingMetadata
+              );
+            } else {
+              console.log(`[Dry Run] Would save article with route ${routingResult.route}: "${event.title}"`);
+            }
+            counts[topic].skipped++;
           } else {
             if (!isDryRun) {
               await saveArticle(
@@ -309,7 +393,14 @@ export async function pollNews(
                 scoringResult.score,
                 null,
                 classifySkipStatus(filteringResult.reasons),
-                filteringResult.reasons.join("; ")
+                filteringResult.reasons.join("; "),
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                routingMetadata
               );
             } else {
               console.log(`[Dry Run] Would save article (unposted) with score: ${scoringResult.score}: "${event.title}"`);

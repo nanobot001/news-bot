@@ -57,7 +57,7 @@ The MVP is complete when:
 
 Phase 1 is the MVP news bot: RSS to normalized news event to dedupe to score to Discord embed to SQLite.
 
-Phase 2 improves live curation and operations with heart reaction favorites, favorite recall, optional Instapaper saves, reaction-based email forwarding, bot manager command authorization, Discord-side topic/source management, keyword tuning, better trust levels, per-topic posting limits, daily digests, grouped related articles, and improved logging.
+Phase 2 improves live curation and operations with heart reaction favorites, favorite recall, optional Instapaper saves, reaction-based email forwarding, bot manager command authorization, Discord-side topic/source management, keyword tuning, content intent classification, better trust levels, per-topic/source/intent posting limits, intent-based digests, grouped related articles, improved logging, sports team schedule-aware event phase routing for teams such as the Blue Jays and Raptors, and manager-approved event context discovery for scheduled topics such as AI conferences, gaming showcases, elections, and product launches.
 
 Phase 3 adds optional LLM-assisted curation for summaries, classification, "why it matters" explanations, posting decisions, and daily digest summaries. LLMs must not replace deterministic dedupe or baseline rules. This phase should begin introducing agent-shaped boundaries, where LLM behavior is governed by explicit instructions, allowed tools, memory scope, and audit logs.
 

@@ -1,5 +1,36 @@
 import { readFile, writeFile, rename } from "node:fs/promises";
 
+export const CONTENT_INTENTS = [
+  "news",
+  "official",
+  "review",
+  "guide",
+  "opinion",
+  "discussion",
+  "reaction",
+  "aggregate",
+  "mixed",
+] as const;
+
+export type ContentIntent = typeof CONTENT_INTENTS[number];
+
+export const CONTENT_ROUTES = [
+  "immediate_post",
+  "thread_only",
+  "digest_pending",
+  "review_pending",
+  "skip",
+] as const;
+
+export type ContentRoute = typeof CONTENT_ROUTES[number];
+
+export type IntentRoutingPolicy = {
+  route: ContentRoute;
+  postThreshold?: number;
+  digestEligible?: boolean;
+  digestSchedule?: string;
+};
+
 export type TopicConfig = {
   channelId: string;
   keywords: string[];
@@ -8,12 +39,16 @@ export type TopicConfig = {
   postThreshold: number;
   emoji?: string;
   disabled?: boolean;
+  intentRouting?: Partial<Record<ContentIntent, IntentRoutingPolicy>>;
 };
 
 export type SourceConfig = {
   name: string;
   url: string;
   trusted: boolean;
+  intentDefault?: ContentIntent;
+  tier?: number;
+  routeHint?: ContentRoute;
 };
 
 export type AppConfig = {
@@ -62,6 +97,57 @@ function validateStringArray(value: unknown, label: string): string[] {
   );
 }
 
+function isContentIntent(value: unknown): value is ContentIntent {
+  return typeof value === "string" && (CONTENT_INTENTS as readonly string[]).includes(value);
+}
+
+function isContentRoute(value: unknown): value is ContentRoute {
+  return typeof value === "string" && (CONTENT_ROUTES as readonly string[]).includes(value);
+}
+
+function validateIntentRouting(value: unknown, label: string): Partial<Record<ContentIntent, IntentRoutingPolicy>> {
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object keyed by content intent`);
+  }
+
+  const policies: Partial<Record<ContentIntent, IntentRoutingPolicy>> = {};
+
+  for (const [intent, policy] of Object.entries(value)) {
+    if (!isContentIntent(intent)) {
+      throw new Error(`${label}.${intent} must be a supported content intent`);
+    }
+
+    if (!isRecord(policy)) {
+      throw new Error(`${label}.${intent} must be an object`);
+    }
+
+    if (!isContentRoute(policy.route)) {
+      throw new Error(`${label}.${intent}.route must be a supported content route`);
+    }
+
+    if (policy.postThreshold !== undefined && typeof policy.postThreshold !== "number") {
+      throw new Error(`${label}.${intent}.postThreshold must be a number`);
+    }
+
+    if (policy.digestEligible !== undefined && typeof policy.digestEligible !== "boolean") {
+      throw new Error(`${label}.${intent}.digestEligible must be a boolean`);
+    }
+
+    if (policy.digestSchedule !== undefined && typeof policy.digestSchedule !== "string") {
+      throw new Error(`${label}.${intent}.digestSchedule must be a string`);
+    }
+
+    policies[intent] = {
+      route: policy.route,
+      postThreshold: policy.postThreshold as number | undefined,
+      digestEligible: policy.digestEligible as boolean | undefined,
+      digestSchedule: policy.digestSchedule as string | undefined,
+    };
+  }
+
+  return policies;
+}
+
 function validateTopics(value: unknown): Record<string, TopicConfig> {
   if (!isRecord(value)) {
     throw new Error("topics config must be an object keyed by topic name");
@@ -97,7 +183,10 @@ function validateTopics(value: unknown): Record<string, TopicConfig> {
       blockedTerms: validateStringArray(topic.blockedTerms, `topics.${topicName}.blockedTerms`),
       postThreshold: topic.postThreshold,
       emoji: topic.emoji as string | undefined,
-      disabled: topic.disabled as boolean | undefined
+      disabled: topic.disabled as boolean | undefined,
+      intentRouting: topic.intentRouting !== undefined
+        ? validateIntentRouting(topic.intentRouting, `topics.${topicName}.intentRouting`)
+        : undefined,
     };
   }
 
@@ -139,10 +228,25 @@ function validateSources(value: unknown, topics: Record<string, TopicConfig>): R
         throw new Error(`${label}.trusted must be a boolean`);
       }
 
+      if (source.intentDefault !== undefined && !isContentIntent(source.intentDefault)) {
+        throw new Error(`${label}.intentDefault must be a supported content intent`);
+      }
+
+      if (source.tier !== undefined && typeof source.tier !== "number") {
+        throw new Error(`${label}.tier must be a number`);
+      }
+
+      if (source.routeHint !== undefined && !isContentRoute(source.routeHint)) {
+        throw new Error(`${label}.routeHint must be a supported content route`);
+      }
+
       return {
         name: source.name,
         url: source.url,
-        trusted: source.trusted
+        trusted: source.trusted,
+        intentDefault: source.intentDefault as ContentIntent | undefined,
+        tier: source.tier as number | undefined,
+        routeHint: source.routeHint as ContentRoute | undefined,
       };
     });
   }

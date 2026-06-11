@@ -38,7 +38,7 @@ export async function parseRssXml(xml: string): Promise<ParsedRssItem[]> {
       guid: cleanOptionalString(anyItem.guid),
       title: cleanOptionalString(anyItem.title),
       link: cleanOptionalString(anyItem.link),
-      pubDate: cleanOptionalString(anyItem.pubDate),
+      pubDate: cleanOptionalString(anyItem.isoDate ?? anyItem.pubDate),
       contentSnippet: cleanOptionalString(anyItem.contentSnippet ?? anyItem.content),
       raw
     };

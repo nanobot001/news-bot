@@ -300,6 +300,42 @@ test("Storage and Deduplication System", async (t) => {
     assert.equal(limit6Hours.length, 2);
   });
 
+  await t.test("should save article intent and routing metadata", async () => {
+    const event: NormalizedEvent = {
+      id: "routing-metadata-1",
+      type: "news.article",
+      topic: "routing",
+      title: "Routing Metadata Article",
+      url: "https://example.com/routing",
+      sourceName: "Routing Source",
+    };
+
+    const saved = await saveArticle(
+      event,
+      30,
+      null,
+      ARTICLE_STATUSES.DIGEST_PENDING,
+      "Stored for digest",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        intent: "discussion",
+        intentConfidence: 0.82,
+        route: "digest_pending",
+        routeReason: "Discussion item did not match an active story thread",
+      }
+    );
+
+    assert.equal(saved.intent, "discussion");
+    assert.equal(saved.intentConfidence, 0.82);
+    assert.equal(saved.route, "digest_pending");
+    assert.equal(saved.routeReason, "Discussion item did not match an active story thread");
+  });
+
   await t.test("should respect DEDUPE_WINDOW_DAYS setting for duplicate checking", async () => {
     const oldEvent: NormalizedEvent = {
       id: "old-guid-99",

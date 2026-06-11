@@ -26,6 +26,27 @@ Only post articles with a score greater than or equal to the topic threshold.
 
 Filtering should reject articles that are duplicates, clearly blocked by topic terms, missing required fields, or below the configured threshold.
 
+## Content Intent Routing
+
+After scoring and filtering, each article is classified with a deterministic content intent and route. The classifier combines source defaults with title and summary rules.
+
+Default behavior remains backwards compatible for normal publisher feeds. Two noisy source families have active defaults:
+
+- Reddit and forum-like sources classify as `discussion`.
+- Google News search feeds classify as `aggregate`.
+
+If a source is explicitly configured as `mixed`, item-level title and summary rules can classify individual items as `news`, `review`, `guide`, `opinion`, `discussion`, or `reaction`.
+
+Routes determine what happens after scoring:
+
+- `immediate_post`: post as a normal standalone candidate.
+- `thread_only`: attach to an existing related story thread if possible; otherwise store as digest pending.
+- `digest_pending`: store for a future digest publisher.
+- `review_pending`: store for a future review lane.
+- `skip`: do not post.
+
+The selected intent, confidence, route, and reasons are stored on the article and included in curation logs.
+
 ## Scheduler Flow
 
 The scheduled job should:
@@ -38,7 +59,9 @@ for each topic
     normalize items
     dedupe
     score
-    post eligible items
+    classify content intent and route
+    post immediate eligible items
+    store digest/review/thread-only outcomes
     store results
 ```
 

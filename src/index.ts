@@ -16,6 +16,7 @@ import {
   handleTestfeedCommand,
   handleLastpostsCommand,
   handleReloadconfigCommand,
+  handleTestdigestCommand,
   handleRefreshCommand,
   handleStatsCommand,
   handleSearchCommand,
@@ -37,6 +38,7 @@ import { getFavorites } from "./storage/articleRepo.js";
 import { createDiscordClient, createDiscordClientConfigFromEnv } from "./bot/discordClient.js";
 import { loadAppConfig } from "./config/loadConfig.js";
 import { startScheduler, runSinglePoll } from "./jobs/pollNews.js";
+import { startDigestSchedulers } from "./jobs/digestPublisher.js";
 import { registerReactionListener } from "./bot/reactionListener.js";
 
 async function main(): Promise<void> {
@@ -86,6 +88,7 @@ async function main(): Promise<void> {
     // Initialize the scheduler
     try {
       startScheduler(readyClient, appConfig);
+      startDigestSchedulers(readyClient, appConfig);
     } catch (schedulerError) {
       console.error(`Failed to start scheduler: ${schedulerError instanceof Error ? schedulerError.message : String(schedulerError)}`);
     }
@@ -209,7 +212,9 @@ async function main(): Promise<void> {
     } else if (interaction.commandName === "lastposts") {
       await handleLastpostsCommand(interaction, appConfig);
     } else if (interaction.commandName === "reload-config") {
-      await handleReloadconfigCommand(interaction, appConfig);
+      await handleReloadconfigCommand(interaction, client, appConfig);
+    } else if (interaction.commandName === "testdigest") {
+      await handleTestdigestCommand(interaction, client, appConfig);
     } else if (interaction.commandName === "refresh") {
       await handleRefreshCommand(interaction, client, appConfig);
     } else if (interaction.commandName === "stats") {

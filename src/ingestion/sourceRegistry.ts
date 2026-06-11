@@ -1,7 +1,12 @@
+import type { ContentIntent, ContentRoute } from "../config/loadConfig.js";
+
 export type SourceConfig = {
   name: string;
   url: string;
   trusted: boolean;
+  intentDefault?: ContentIntent;
+  tier?: number;
+  routeHint?: ContentRoute;
 };
 
 export type SourcesByTopic = Record<string, SourceConfig[]>;

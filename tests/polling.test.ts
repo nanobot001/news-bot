@@ -394,6 +394,61 @@ test("Scheduled Polling Pipeline System", async (t) => {
     }
   });
 
+  await t.test("should store Reddit discussion items as digest pending when no related story thread exists", async () => {
+    postedEmbeds.length = 0;
+    await prisma.article.deleteMany({});
+    delete process.env.DRY_RUN;
+    process.env.MAX_ARTICLE_AGE_HOURS = "0";
+
+    const xml = createRssXml(
+      "Anyone know a good new restaurant in Toronto?",
+      "https://www.reddit.com/r/FoodToronto/comments/example",
+      "reddit-discussion-1",
+      "Looking for discussion about a restaurant opening."
+    );
+
+    globalThis.fetch = async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => xml,
+      } as Response;
+    };
+
+    const config: AppConfig = {
+      topics: {
+        "toronto-eats": {
+          channelId: "123456789",
+          postThreshold: 10,
+          keywords: ["restaurant"],
+          blockedTerms: [],
+        },
+      },
+      sources: {
+        "toronto-eats": [
+          {
+            name: "Reddit FoodToronto",
+            url: "https://www.reddit.com/r/FoodToronto/.rss",
+            trusted: true,
+          },
+        ],
+      },
+    };
+
+    const counts = await pollNews(mockClient, config);
+
+    assert.equal(counts["toronto-eats"].posted, 0);
+    assert.equal(counts["toronto-eats"].skipped, 1);
+    assert.equal(postedEmbeds.length, 0);
+
+    const saved = await prisma.article.findFirst({ where: { id: "reddit-discussion-1" } });
+    assert.ok(saved);
+    assert.equal(saved.status, ARTICLE_STATUSES.DIGEST_PENDING);
+    assert.equal(saved.intent, "discussion");
+    assert.equal(saved.route, "digest_pending");
+    assert.match(saved.routeReason ?? "", /No related active story thread/);
+  });
+
   test("File lock mechanism", () => {
     const origNodeEnv = process.env.NODE_ENV;
     const origDbUrl = process.env.DATABASE_URL;

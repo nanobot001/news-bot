@@ -1,5 +1,54 @@
 # Continue Here
 
+## 2026-06-10 (Block 2-6 Content Intent Routing Implemented)
+
+Current state:
+- Completed Block 2-6 and moved it to `docs/blocks/completed/block-2-6-content-intent-routing.md`.
+- Added deterministic content intent classification in `src/processing/contentRouting.ts`.
+- Added durable Prisma `Article` fields: `intent`, `intentConfidence`, `route`, and `routeReason`.
+- Added migration `prisma/migrations/20260610000000_add_content_intent_routing/migration.sql` and applied it to the local SQLite DB.
+- Added article statuses for `DIGEST_PENDING`, `REVIEW_PENDING`, and `SKIPPED_INTENT`.
+- Polling now classifies and routes items after scoring/filtering:
+  - normal publisher feeds preserve legacy immediate behavior;
+  - Reddit/forum-like feeds default to `discussion`;
+  - Google News search feeds default to `aggregate`;
+  - discussion items attempt thread-only related coverage and otherwise store as digest pending;
+  - aggregate items store as digest pending by default.
+- `/testfeed` dry runs include intent routing diagnostics.
+- Updated `docs/architecture/README.md`, `docs/data/README.md`, and `docs/logic/README.md` with the routing layer.
+- Verification passed: `npm run build`; `npm test` (196/196).
+
+Next step:
+- Implement Block 2-8 (`docs/blocks/block-2-8-intent-based-digests.md`) so `DIGEST_PENDING` items can be batched and published by topic/intent.
+
+Do-not-forget checks:
+- Keep Block 2-8 focused on publishing/storing digest lanes. Do not add LLM summaries yet.
+- `thread_only` discussion items currently fall back to `DIGEST_PENDING` when no related active story thread exists.
+- The old `src/config/topics.json` working-tree modification predated this work and was not intentionally changed by Block 2-6.
+
+## 2026-06-10 (Phase 2 Editorial Routing Plan Locked)
+
+Current state:
+- Reframed the remaining Phase 2 curation work around an editorial routing model: classify each item by content intent, then route it to immediate posting, thread context, digest, review, or skip lanes.
+- Replaced the old pending `block-2-6-advanced-trust-rules.md` with `docs/blocks/block-2-6-content-intent-routing.md`.
+- Replaced the old pending `block-2-8-daily-digests.md` with `docs/blocks/block-2-8-intent-based-digests.md`.
+- Added `docs/blocks/block-2-9-posting-frequency-controls.md` for cooldowns and per-topic/source/intent caps.
+- Added `docs/blocks/block-2-11-sports-schedule-event-phase.md` for Blue Jays and Raptors sports team context with schedule-aware game phase routing.
+- Revised the sports schedule plan so APIs are occasional season/wide-window sync sources. Normal game-day event phase classification should use a local schedule cache, with more frequent refresh around NBA Cup / mid-season tournament windows, postponed/rescheduled games, play-in, and playoffs.
+- Revised the sports model so normal topic config can declare a simple subject such as `sports_team:toronto-blue-jays`; provider IDs and API details should live in an internal registry.
+- Added `docs/blocks/block-2-12-assisted-event-context-discovery.md` for manager-approved event context discovery across topics such as AI, gaming, conferences, elections, and product launches. Discovery may suggest contexts, but only approved contexts should affect routing.
+- Updated `docs/blocks/README.md` and `docs/project-charter.md` to reflect content intent classification, intent-based digests, posting frequency controls, and sports schedule-aware routing.
+- Completed block tickets have been moved into `docs/blocks/completed/`; active block tickets now remain directly under `docs/blocks/`.
+
+Next step:
+- Implement Block 2-6 first. This should introduce deterministic source defaults plus item-level classification for `news`, `official`, `review`, `guide`, `opinion`, `discussion`, `reaction`, `aggregate`, and `mixed`, with Reddit defaulting to discussion and broad Google News/search feeds defaulting to aggregate.
+
+Do-not-forget checks:
+- Keep classification deterministic and explainable before considering LLM-assisted classification in Phase 3.
+- Treat schedule APIs as provider abstractions with durable local caching and graceful fallback, not as hard-coded calls inside the polling loop. The classifier should not call schedule APIs per article or per normal poll.
+- Event discovery should be assisted, not autonomous: discovered candidates remain inert until a bot manager approves them.
+- `src/config/topics.json` was already modified before this planning update and was not touched as part of this change.
+
 ## 2026-05-28 (YouTube Ingestion Scoring Improvements)
 
 Current state:

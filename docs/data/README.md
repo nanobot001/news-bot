@@ -28,6 +28,7 @@ Future event types may include `plex.new_media`, `reddit.saved_item`, and `gmail
 - Keywords
 - Blocked terms
 - Post threshold
+- Optional intent routing policies keyed by content intent
 
 ## Sources Config
 
@@ -36,6 +37,31 @@ Future event types may include `plex.new_media`, `reddit.saved_item`, and `gmail
 - Source name
 - RSS URL
 - Trust flag
+- Optional default content intent, tier, and route hint
+
+## Content Intent And Routes
+
+Content intent is deterministic editorial metadata assigned during polling. Supported intents are:
+
+- `news`
+- `official`
+- `review`
+- `guide`
+- `opinion`
+- `discussion`
+- `reaction`
+- `aggregate`
+- `mixed`
+
+Supported routes are:
+
+- `immediate_post`
+- `thread_only`
+- `digest_pending`
+- `review_pending`
+- `skip`
+
+Existing topics without `intentRouting` preserve legacy posting behavior except for built-in hybrid defaults: Reddit/forum-like sources default to `discussion`, and Google News search feeds default to `aggregate`.
 
 ## SQLite Storage
 
@@ -54,6 +80,10 @@ Store:
 - Score
 - Status (`INDEXED`, `POSTED`, or a `SKIPPED_*` status)
 - Status reason for filter/audit context
+- Intent
+- Intent confidence
+- Route
+- Route reason
 - Raw JSON
 
 Deduplication should check RSS GUID when available, canonical URL hash, and title hash fallback.

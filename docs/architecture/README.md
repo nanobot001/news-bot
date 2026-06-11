@@ -10,6 +10,14 @@ raw source -> normalized event -> dedupe -> scoring/filtering -> Discord publish
 
 RSS is the first raw source, but the internal shape should not be RSS-specific after normalization.
 
+Phase 2 adds an editorial routing layer between scoring/filtering and publishing:
+
+```txt
+normalized event -> dedupe -> scoring/filtering -> content intent routing -> publish/thread/store -> storage/logging
+```
+
+Content intent routing is deterministic and explainable. It separates immediate news from discussion, aggregate feeds, reviews, guides, opinion, and reactions before deciding whether an item should post immediately, attach to an existing thread, wait for digest/review handling, or skip.
+
 ## Initial Areas
 
 - `src/bot/`: Discord client, command registration, and embed publishing

@@ -28,7 +28,7 @@ export function normalizeUrl(urlStr: string): string {
       } else {
         if (parsed.pathname.startsWith("/watch")) {
           videoId = parsed.searchParams.get("v");
-        } else if (parsed.pathname.startsWith("/embed/") || parsed.pathname.startsWith("/v/")) {
+        } else if (parsed.pathname.startsWith("/embed/") || parsed.pathname.startsWith("/v/") || parsed.pathname.startsWith("/shorts/")) {
           const parts = parsed.pathname.split("/").filter(Boolean);
           videoId = parts[1] || null;
         }

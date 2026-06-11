@@ -17,7 +17,6 @@
       "fluharty",
       "hoffman",
       "macko",
-      "rodriguez",
       "rogers centre",
       "spring training",
       "homerun",
@@ -100,7 +99,8 @@
       "ats",
       "live",
       "tempo",
-      "”how to watch”"
+      "”how to watch”",
+      "how to watch"
     ],
     "postThreshold": 20,
     "emoji": "<:jays:1508144467230724217>"
@@ -204,7 +204,8 @@
       "pick-em",
       "dfs",
       "ats",
-      "tempo"
+      "tempo",
+      "how to watch"
     ],
     "postThreshold": 20,
     "emoji": "<:raptors:1508144470539894973>"
@@ -355,7 +356,6 @@
       "eatery",
       "eateries",
       "brunch",
-      "opening",
       "openings",
       "closing",
       "closings",
@@ -451,17 +451,12 @@
       "food tour",
       "food market",
       "food hall",
-      "market",
       "eating",
       "tasting",
       "review",
       "hidden gem",
       "must try",
-      "best of",
-      "underrated",
-      "viral",
-      "trying",
-      "ranked"
+      "underrated"
     ],
     "locationKeywords": [
       "mississauga",
@@ -525,10 +520,20 @@
       "robbery",
       "blue jays",
       "raptors",
-      "maple leafs"
+      "maple leafs",
+      "house",
+      "townhouse",
+      "condo",
+      "real estate"
     ],
     "postThreshold": 20,
     "emoji": "<:torontofoodie3:1508674647711940702>",
+    "intentRouting": {
+      "aggregate": {
+        "route": "digest_pending",
+        "digestSchedule": "0 21 * * *"
+      }
+    },
     "disabled": false
   }
 }

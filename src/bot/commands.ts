@@ -16,6 +16,7 @@ import {
 import { type AppConfig, reloadAppConfig, saveTopicsConfig, saveSourcesConfig } from "../config/loadConfig.js";
 import { getArticlesForTopic, getFavorites, deleteFavoriteById, getCurationLogs, saveArticle } from "../storage/articleRepo.js";
 import { pollNews, classifySkipStatus } from "../jobs/pollNews.js";
+import { startDigestSchedulers, publishDigestForLane } from "../jobs/digestPublisher.js";
 import { prisma } from "../storage/prismaClient.js";
 import { formatArticleStatus, ARTICLE_STATUSES } from "../storage/articleStatus.js";
 import { isBotManager } from "./auth.js";
@@ -108,6 +109,26 @@ export const lastpostsCommand = new SlashCommandBuilder()
 export const reloadconfigCommand = new SlashCommandBuilder()
   .setName("reload-config")
   .setDescription("Reload configuration files without restarting the bot.");
+
+export const testdigestCommand = new SlashCommandBuilder()
+  .setName("testdigest")
+  .setDescription("Generate a dry-run or immediate digest for a specific topic and intent lane.")
+  .addStringOption(option =>
+    option.setName("topic")
+      .setDescription("The topic to generate a digest for")
+      .setRequired(true)
+      .setAutocomplete(true)
+  )
+  .addStringOption(option =>
+    option.setName("intent")
+      .setDescription("The intent lane to generate a digest for")
+      .setRequired(true)
+  )
+  .addBooleanOption(option =>
+    option.setName("post")
+      .setDescription("Whether to actually post it to Discord and mark articles as posted (default: false)")
+      .setRequired(false)
+  );
 
 export const refreshCommand = new SlashCommandBuilder()
   .setName("refresh")
@@ -451,6 +472,7 @@ export function getCommandRegistrationPayloads(): any[] {
     testfeedCommand.toJSON(),
     lastpostsCommand.toJSON(),
     reloadconfigCommand.toJSON(),
+    testdigestCommand.toJSON(),
     refreshCommand.toJSON(),
     statsCommand.toJSON(),
     searchCommand.toJSON(),
@@ -601,6 +623,7 @@ export async function handleLastpostsCommand(
 
 export async function handleReloadconfigCommand(
   interaction: ChatInputCommandInteraction,
+  client: Client,
   appConfig: AppConfig
 ): Promise<void> {
   if (!isBotManager(interaction)) {
@@ -614,6 +637,7 @@ export async function handleReloadconfigCommand(
   try {
     await interaction.deferReply({ ephemeral: true });
     await reloadAppConfig(appConfig);
+    startDigestSchedulers(client, appConfig);
     const numTopics = Object.keys(appConfig.topics).length;
     const numSources = Object.values(appConfig.sources).flat().length;
     await interaction.editReply({
@@ -624,6 +648,40 @@ export async function handleReloadconfigCommand(
     await interaction.editReply({
       content: `Failed to reload configuration: ${msg}`
     });
+  }
+}
+
+export async function handleTestdigestCommand(
+  interaction: ChatInputCommandInteraction,
+  client: Client,
+  appConfig: AppConfig
+): Promise<void> {
+  if (!isBotManager(interaction)) {
+    await interaction.reply({
+      content: "You do not have permission to run this command.",
+      ephemeral: true
+    });
+    return;
+  }
+
+  const topic = interaction.options.getString("topic", true);
+  const intent = interaction.options.getString("intent", true);
+  const post = interaction.options.getBoolean("post") ?? false;
+
+  if (!appConfig.topics[topic]) {
+    await interaction.reply({ content: `Unknown topic: "${topic}"`, ephemeral: true });
+    return;
+  }
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    await publishDigestForLane(client, appConfig, topic, intent, !post);
+    await interaction.editReply({
+      content: `Digest execution complete for "${topic}" (${intent}). ${post ? 'Posted to channel.' : 'Dry-run only, check console for details.'}`
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    await interaction.editReply({ content: `Failed to execute digest: ${msg}` });
   }
 }
 

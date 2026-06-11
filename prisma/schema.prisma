@@ -21,6 +21,10 @@ model Article {
   score       Int?
   status      String    @default("INDEXED")
   statusReason String?
+  intent      String?
+  intentConfidence Float?
+  route       String?
+  routeReason String?
   rawJson     String?
 
   discordMessageId String?
@@ -41,6 +45,8 @@ model Article {
   @@index([titleHash])
   @@index([postedAt])
   @@index([status])
+  @@index([intent])
+  @@index([route])
   @@index([discordMessageId])
   @@index([anchorId, anchorTopic])
 }

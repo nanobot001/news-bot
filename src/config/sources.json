@@ -3,7 +3,8 @@
     {
       "name": "Jays Journal",
       "url": "https://news.google.com/rss/search?q=site:jaysjournal.com+%22Blue+Jays%22",
-      "trusted": true
+      "trusted": true,
+      "intentDefault": "mixed"
     },
     {
       "name": "Sportsnet MLB",
@@ -23,22 +24,26 @@
     {
       "name": "Toronto Star Blue Jays",
       "url": "https://news.google.com/rss/search?q=site:thestar.com+%22Blue+Jays%22",
-      "trusted": true
+      "trusted": true,
+      "intentDefault": "mixed"
     },
     {
       "name": "Globe and Mail Blue Jays",
       "url": "https://news.google.com/rss/search?q=site:theglobeandmail.com+%22Blue+Jays%22",
-      "trusted": true
+      "trusted": true,
+      "intentDefault": "mixed"
     },
     {
       "name": "Toronto Sun Blue Jays",
       "url": "https://news.google.com/rss/search?q=site:torontosun.com+%22Blue+Jays%22",
-      "trusted": true
+      "trusted": true,
+      "intentDefault": "mixed"
     },
     {
       "name": "TSN Blue Jays",
       "url": "https://news.google.com/rss/search?q=site:tsn.ca+%22Blue+Jays%22",
-      "trusted": true
+      "trusted": true,
+      "intentDefault": "mixed"
     },
     {
       "name": "CBC Sports",
@@ -48,7 +53,8 @@
     {
       "name": "The Athletic Blue Jays",
       "url": "https://news.google.com/rss/search?q=site:nytimes.com/athletic+%22Blue+Jays%22",
-      "trusted": true
+      "trusted": true,
+      "intentDefault": "mixed"
     },
     {
       "name": "Andrew Stoeten (The Batflip)",
@@ -137,12 +143,14 @@
     {
       "name": "ESPN NBA",
       "url": "https://news.google.com/rss/search?q=site:espn.com/nba",
-      "trusted": true
+      "trusted": true,
+      "intentDefault": "mixed"
     },
     {
       "name": "The Ringer NBA",
       "url": "https://news.google.com/rss/search?q=site:theringer.com/nba",
-      "trusted": true
+      "trusted": true,
+      "intentDefault": "mixed"
     },
     {
       "name": "NYT Sports",
