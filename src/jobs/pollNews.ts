@@ -271,6 +271,14 @@ export async function pollNews(
 
               // 2. If similar story anchor found, merge/post into its thread
               if (bestAnchor && bestScore >= similarityThreshold) {
+                // If it's the exact same story from the SAME source (e.g., a title tweak or repost),
+                // skip it completely instead of threading it to avoid redundant spam.
+                if (bestAnchor.source === event.sourceName && bestScore >= 0.65) {
+                  console.log(`[News Poll] Dropping duplicate coverage from SAME source: "${event.title}" (score: ${bestScore.toFixed(2)})`);
+                  counts[topic].skipped++;
+                  continue;
+                }
+
                 let threadId = bestAnchor.storyThreadId;
 
                 // 2a. Lazy create thread on parent message if it doesn't exist
