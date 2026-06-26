@@ -8,7 +8,7 @@ process.on("uncaughtException", (error) => {
   console.error("[Process] Uncaught Exception:", error);
 });
 
-import { Events, REST, Routes } from "discord.js";
+import { Events, REST, Routes, MessageType } from "discord.js";
 
 import {
   getCommandRegistrationPayloads,
@@ -40,6 +40,7 @@ import { loadAppConfig } from "./config/loadConfig.js";
 import { startScheduler, runSinglePoll } from "./jobs/pollNews.js";
 import { startDigestSchedulers } from "./jobs/digestPublisher.js";
 import { registerReactionListener } from "./bot/reactionListener.js";
+import { startDashboard } from "./web/server.js";
 
 async function main(): Promise<void> {
   const discordConfig = createDiscordClientConfigFromEnv();
@@ -49,6 +50,16 @@ async function main(): Promise<void> {
 
   registerReactionListener(client);
 
+  client.on(Events.MessageCreate, async (message) => {
+    try {
+      if (message.type === 8 || message.type === MessageType.ChannelNameChange) {
+        await message.delete().catch(() => null);
+        console.log(`[Message Listener] Automatically deleted channel name change announcement in thread: ${message.channelId}`);
+      }
+    } catch (err) {
+      // Safe catch
+    }
+  });
 
   client.on(Events.Error, (error) => {
     console.error(`[Discord Client] Error:`, error);
@@ -85,12 +96,13 @@ async function main(): Promise<void> {
       }
     }
 
-    // Initialize the scheduler
+    // Initialize the scheduler and dashboard
     try {
       startScheduler(readyClient, appConfig);
       startDigestSchedulers(readyClient, appConfig);
+      startDashboard(appConfig, readyClient);
     } catch (schedulerError) {
-      console.error(`Failed to start scheduler: ${schedulerError instanceof Error ? schedulerError.message : String(schedulerError)}`);
+      console.error(`Failed to start scheduler or dashboard: ${schedulerError instanceof Error ? schedulerError.message : String(schedulerError)}`);
     }
 
     // Trigger immediate run if requested in development mode
@@ -141,6 +153,29 @@ async function main(): Promise<void> {
             const choices = configuredTopics
               .filter(topic => topic.toLowerCase().includes(focusedValue))
               .map(topic => ({ name: topic, value: topic }))
+              .slice(0, 25);
+            await interaction.respond(choices);
+          } else if (focusedOption.name === "source") {
+            const topic = interaction.options.getString("topic") || "";
+            const focusedValue = String(focusedOption.value ?? "").toLowerCase();
+            const sources = topic
+              ? (appConfig.sources[topic] || [])
+              : Object.values(appConfig.sources).flat();
+            const seen = new Set<string>();
+            const choices = sources
+              .filter(source => source.name.toLowerCase().includes(focusedValue))
+              .filter(source => {
+                const key = source.name.toLowerCase();
+                if (seen.has(key)) {
+                  return false;
+                }
+                seen.add(key);
+                return true;
+              })
+              .map(source => {
+                const name = source.name.length > 100 ? source.name.slice(0, 97) + "..." : source.name;
+                return { name, value: source.name };
+              })
               .slice(0, 25);
             await interaction.respond(choices);
           } else if (focusedOption.name === "keyword" && interaction.commandName === "keyword") {

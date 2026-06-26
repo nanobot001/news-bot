@@ -6,14 +6,20 @@ import { normalizeRssItem } from "../normalization/normalizeRssItem.js";
 import { checkDuplicate } from "../processing/dedupe.js";
 import { scoreArticle } from "../processing/scoreArticle.js";
 import { filterArticle } from "../processing/filterArticle.js";
-import { saveArticle, pruneOldArticles, saveCurationLog, getActiveAnchors, setStoryThreadId, updateLastStoryAddedAt, getInactiveStoryAnchors, closeStoryAnchor } from "../storage/articleRepo.js";
+import { saveArticle, pruneOldArticles, saveCurationLog } from "../storage/articleRepo.js";
+import { createStory, getActiveStories, updateLastActivityAt, getInactiveStories, closeStory, setEventThreadAndIndex, getInactiveEvents, closeEvent } from "../storage/storyRepo.js";
+import { extractSignals } from "../processing/signals.js";
+import { updateEventIndex } from "../bot/indexManager.js";
+import { prisma } from "../storage/prismaClient.js";
 import { ARTICLE_STATUSES, type ArticleStatus, routeToPendingStatus } from "../storage/articleStatus.js";
 import { formatArticleEmbed, postArticleToChannel } from "../bot/postEmbed.js";
-import { calculateJaccardSimilarity, cleanThreadTitle } from "../processing/similarity.js";
+import { calculateJaccardSimilarity, findBestStoryMatch } from "../processing/similarity.js";
 import { classifyContentIntent, decideContentRoute } from "../processing/contentRouting.js";
 import { acquireLock, releaseLock } from "../utils/lock.js";
 import { decodeGoogleNewsUrl } from "../utils/googleNewsResolver.js";
 import { scrapeOgImage } from "../utils/ogImageScraper.js";
+import { runPeriodicReview } from "../services/llmReview.js";
+import { createCoverageIndexThread } from "../bot/threadUtils.js";
 
 export type PollTopicCounts = {
   checked: number;
@@ -32,9 +38,9 @@ export type PollError = {
 function getThreadInactiveLimitHours(): number {
   const configured = process.env.THREAD_INACTIVE_LIMIT_HOURS
     ? parseFloat(process.env.THREAD_INACTIVE_LIMIT_HOURS)
-    : 4;
+    : 12;
 
-  return Number.isFinite(configured) && configured > 0 ? configured : 4;
+  return Number.isFinite(configured) && configured > 0 ? configured : 12;
 }
 
 function getThreadActivityTimestamp(thread: any): number {
@@ -309,61 +315,106 @@ export async function pollNews(
                   console.warn(`[News Poll] Failed to scrape OG image for ${event.url}:`, err);
                 }
               }
-              // 1. Fetch active story anchors for the topic
-              const activeAnchors = await getActiveAnchors(topic);
-              let bestAnchor: any = null;
-              let bestScore = 0;
+              // 1. Extract signals and check for matches
+              const eventSignals = extractSignals(event);
+              const activeStories = await getActiveStories(topic);
+              const signalThreshold = process.env.SIGNAL_THRESHOLD ? parseFloat(process.env.SIGNAL_THRESHOLD) : 0.3;
               const similarityThreshold = process.env.SIMILARITY_THRESHOLD ? parseFloat(process.env.SIMILARITY_THRESHOLD) : 0.25;
 
-              for (const anchor of activeAnchors) {
-                const jaccardScore = calculateJaccardSimilarity(event.title, anchor.title);
-                if (jaccardScore > bestScore) {
-                  bestScore = jaccardScore;
-                  bestAnchor = anchor;
-                }
-              }
+              const matchResult = findBestStoryMatch(
+                event.title,
+                eventSignals,
+                activeStories as any,
+                signalThreshold,
+                similarityThreshold
+              );
 
-              // 2. If similar story anchor found, merge/post into its thread
-              if (bestAnchor && bestScore >= similarityThreshold) {
+              const bestStory = matchResult.story;
+              const bestScore = matchResult.score;
+              const matchReason = matchResult.reason;
+
+              // 2. If similar story found, merge/post into its thread
+              if (bestStory) {
                 // If it's the exact same story from the SAME source (e.g., a title tweak or repost),
                 // skip it completely instead of threading it to avoid redundant spam.
-                if (bestAnchor.source === event.sourceName && bestScore >= 0.65) {
-                  console.log(`[News Poll] Dropping duplicate coverage from SAME source: "${event.title}" (score: ${bestScore.toFixed(2)})`);
+                let duplicateSameSource = false;
+                for (const article of bestStory.articles) {
+                  if (article.source === event.sourceName) {
+                    const jaccardScore = calculateJaccardSimilarity(event.title, article.title);
+                    if (jaccardScore >= 0.65) {
+                      duplicateSameSource = true;
+                      break;
+                    }
+                  }
+                }
+
+                if (duplicateSameSource) {
+                  console.log(`[News Poll] Dropping duplicate coverage from SAME source: "${event.title}"`);
                   counts[topic].skipped++;
                   continue;
                 }
 
-                let threadId = bestAnchor.storyThreadId;
+                let threadId = (bestStory as any).event?.discordThreadId;
 
                 // 2a. Lazy create thread on parent message if it doesn't exist
-                if (!threadId && bestAnchor.discordChannelId && bestAnchor.discordMessageId) {
-                  try {
-                    const anchorChannel = await client.channels.fetch(bestAnchor.discordChannelId);
-                    if (anchorChannel?.isTextBased()) {
-                      const anchorMsg = await anchorChannel.messages.fetch(bestAnchor.discordMessageId);
-                      if (anchorMsg) {
-                        const threadTitle = cleanThreadTitle(bestAnchor.title);
-                        let thread: any;
-                        try {
-                          thread = await anchorMsg.startThread({
-                            name: threadTitle,
-                            autoArchiveDuration: 1440
-                          });
-                        } catch (startErr: any) {
-                          console.warn("[PollNews] startThread failed, fetching existing thread by ID:", startErr);
-                          thread = await client.channels.fetch(anchorMsg.id).catch(() => null);
-                          if (!thread) {
-                            throw startErr;
-                          }
+                if (!threadId && (bestStory as any).event) {
+                  const firstArticle = bestStory.articles[0];
+                  if (firstArticle && firstArticle.discordChannelId && firstArticle.discordMessageId) {
+                    try {
+                      const anchorChannel = await client.channels.fetch(firstArticle.discordChannelId);
+                      const threadContext = await createCoverageIndexThread(
+                        client,
+                        firstArticle.discordChannelId,
+                        (bestStory as any).event.title
+                      );
+                      const thread = threadContext.thread;
+                      threadId = threadContext.threadId;
+
+                      if (anchorChannel?.isTextBased()) {
+
+                        // 3. Delete the first article's original standalone message from the parent channel
+                        const oldMsg = await anchorChannel.messages.fetch(firstArticle.discordMessageId).catch(() => null);
+                        if (oldMsg) {
+                          await oldMsg.delete().catch((err: any) => console.warn("Failed to delete first article message:", err));
                         }
-                        threadId = thread.id;
-                        await setStoryThreadId(bestAnchor.id, bestAnchor.topic, thread.id);
+
+                        // 4. Repost the first article inside the newly created thread
+                        const firstFormatted = {
+                          id: firstArticle.id,
+                          type: "news.article" as const,
+                          title: `[${bestStory.title}] ${firstArticle.title}`,
+                          url: firstArticle.url ?? "",
+                          sourceName: firstArticle.source,
+                          topic: firstArticle.topic,
+                          publishedAt: firstArticle.publishedAt?.toISOString() || undefined,
+                        };
+                        
+                        const firstEmbed = formatArticleEmbed({
+                          event: firstFormatted,
+                          score: firstArticle.score ?? 0,
+                          emoji: topicConfig.emoji,
+                          intent: firstArticle.intent ?? undefined,
+                        });
+                        const firstRepostMsg = await (thread as any).send({ embeds: [firstEmbed] });
+
+                        // 5. Update the first article reference in the database to point to the thread message
+                        await prisma.article.update({
+                          where: { id_topic: { id: firstArticle.id, topic: firstArticle.topic } },
+                          data: {
+                            discordChannelId: threadId,
+                            discordMessageId: firstRepostMsg.id,
+                            status: "RELATED_COVERAGE",
+                            statusReason: `Moved to event thread "${(bestStory as any).event.title}" on lazy thread creation`
+                          }
+                        });
+
+                        await setEventThreadAndIndex((bestStory as any).event.id, threadId, threadContext.indexMessageId);
 
                         // Ping managers in the new thread
                         const mentions = getManagerMentions();
                         if (mentions) {
                           await (thread as any).send({
-                            content: `🧵 New story thread created. Alert: ${mentions}`
+                            content: `🧵 New event thread created. Alert: ${mentions}`
                           });
                         }
 
@@ -378,9 +429,9 @@ export async function pollNews(
                           }
                         }
                       }
+                    } catch (threadErr) {
+                      console.error("Failed to lazy create thread on anchor message:", threadErr);
                     }
-                  } catch (threadErr) {
-                    console.error("Failed to lazy create thread on anchor message:", threadErr);
                   }
                 }
 
@@ -389,7 +440,12 @@ export async function pollNews(
                   try {
                     const threadChannel = await client.channels.fetch(threadId);
                     if (threadChannel?.isTextBased()) {
-                      const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji, intent: routingResult.intent });
+                      // Prefix the article title with the story title for context
+                      const formattedEvent = {
+                        ...event,
+                        title: `[${bestStory.title}] ${event.title}`
+                      };
+                      const embed = formatArticleEmbed({ event: formattedEvent, score: scoringResult.score, emoji: topicConfig.emoji, intent: routingResult.intent });
                       const threadMsg = await (threadChannel as any).send({ embeds: [embed] });
 
                       // Save as RELATED_COVERAGE child
@@ -398,18 +454,35 @@ export async function pollNews(
                         scoringResult.score,
                         new Date(),
                         ARTICLE_STATUSES.RELATED_COVERAGE,
-                        `Clustered automatically via similarity check (Jaccard: ${bestScore.toFixed(2)})`,
-                        threadMsg?.id,
-                        threadId,
-                        bestAnchor.id,
-                        bestAnchor.topic,
-                        null,
-                        null,
+                        `Clustered automatically via ${matchReason} check (Score: ${bestScore.toFixed(2)})`,
+                        threadMsg?.id ?? undefined,
+                        threadId ?? undefined,
+                        bestStory.id,
                         routingMetadata
                       );
 
-                      // Update anchor's lastStoryAddedAt
-                      await updateLastStoryAddedAt(bestAnchor.id, bestAnchor.topic, new Date());
+                      // Save signals for the article and link to story
+                      if (eventSignals.length > 0) {
+                        await prisma.storySignal.createMany({
+                          data: eventSignals.map(sig => ({
+                            storyId: bestStory.id,
+                            articleId: event.id,
+                            articleTopic: topic,
+                            type: sig.type,
+                            value: sig.value,
+                            weight: sig.weight
+                          }))
+                        }).catch(err => console.warn("Failed to save article signals:", err));
+                      }
+
+                      // Update story's lastActivityAt
+                      await updateLastActivityAt(bestStory.id, new Date());
+                      
+                      // Update the Event Pinned Index
+                      if ((bestStory as any).event) {
+                        await updateEventIndex(client, (bestStory as any).event.id);
+                      }
+                      
                       counts[topic].posted++;
                       continue;
                     }
@@ -428,10 +501,7 @@ export async function pollNews(
                   "No related active story thread found for thread-only discussion item",
                   undefined,
                   undefined,
-                  undefined,
-                  undefined,
-                  undefined,
-                  undefined,
+                  null,
                   {
                     ...routingMetadata,
                     route: "digest_pending",
@@ -445,20 +515,36 @@ export async function pollNews(
               // 3. Fallback or standard post: post as standalone article
               const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji, intent: routingResult.intent });
               const message = await postArticleToChannel(client, topicConfig.channelId, embed);
+              
+              // Create a new story
+              const newStory = await createStory(topic, event.title);
+              
               await saveArticle(
                 event,
                 scoringResult.score,
                 new Date(),
                 ARTICLE_STATUSES.POSTED,
                 undefined,
-                message?.id,
-                message?.channelId,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
+                message?.id ?? undefined,
+                message?.channelId ?? undefined,
+                newStory.id,
                 routingMetadata
               );
+
+              // Save signals for the article and link to story
+              if (eventSignals.length > 0) {
+                await prisma.storySignal.createMany({
+                  data: eventSignals.map(sig => ({
+                    storyId: newStory.id,
+                    articleId: event.id,
+                    articleTopic: topic,
+                    type: sig.type,
+                    value: sig.value,
+                    weight: sig.weight
+                  }))
+                }).catch(err => console.warn("Failed to save article signals:", err));
+              }
+
               counts[topic].posted++;
             }
           } else if (routingResult.route === "digest_pending" || routingResult.route === "review_pending" || (routingResult.route === "skip" && filteringResult.shouldPost)) {
@@ -471,10 +557,7 @@ export async function pollNews(
                 routingResult.reason,
                 undefined,
                 undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
+                null,
                 routingMetadata
               );
             } else {
@@ -491,10 +574,7 @@ export async function pollNews(
                 filteringResult.reasons.join("; "),
                 undefined,
                 undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
+                null,
                 routingMetadata
               );
             } else {
@@ -577,20 +657,20 @@ export async function runSinglePoll(client: Client, config: AppConfig): Promise<
  */
 export async function archiveInactiveThreads(client: Client, config?: AppConfig): Promise<void> {
   try {
-    const inactiveAnchors = await getInactiveStoryAnchors();
+    const inactiveEvents = await getInactiveEvents();
     const limitHours = getThreadInactiveLimitHours();
-    const reason = `Story inactive for > ${limitHours} hours`;
+    const reason = `Event inactive for > ${limitHours} hours`;
 
-    if (inactiveAnchors.length > 0) {
-      console.log(`[Thread Cleanup] Found ${inactiveAnchors.length} inactive story threads to close.`);
+    if (inactiveEvents.length > 0) {
+      console.log(`[Thread Cleanup] Found ${inactiveEvents.length} inactive event threads to close.`);
     }
 
-    for (const anchor of inactiveAnchors) {
-      if (!anchor.storyThreadId) continue;
+    for (const event of inactiveEvents) {
+      if (!event.discordThreadId) continue;
 
       let dbSuccess = false;
       try {
-        const threadChannel = await client.channels.fetch(anchor.storyThreadId);
+        const threadChannel = await client.channels.fetch(event.discordThreadId);
         if (threadChannel?.isThread()) {
           dbSuccess = await archiveAndLockThread(threadChannel, reason);
         } else {
@@ -602,13 +682,13 @@ export async function archiveInactiveThreads(client: Client, config?: AppConfig)
           // Unknown Channel - already deleted
           dbSuccess = true;
         } else {
-          console.warn(`[Thread Cleanup] Could not archive thread ${anchor.storyThreadId} in Discord (permissions issue or API error):`, discordErr.message);
+          console.warn(`[Thread Cleanup] Could not archive thread ${event.discordThreadId} in Discord (permissions issue or API error):`, discordErr.message);
         }
       }
 
       if (dbSuccess) {
-        // Mark the story anchor as CLOSED in database
-        await closeStoryAnchor(anchor.id, anchor.topic);
+        // Mark the stories as CLOSED in database
+        await closeEvent(event.id);
       }
     }
 
@@ -750,6 +830,16 @@ export function startScheduler(client: Client, config: AppConfig): cron.Schedule
     try {
       await runSinglePoll(client, config);
       await archiveInactiveThreads(client, config);
+
+      // Run periodic LLM review for each topic
+      const topics = Object.keys(config.topics);
+      for (const topic of topics) {
+        try {
+          await runPeriodicReview(topic, client);
+        } catch (reviewErr) {
+          console.error(`[News Poll] Error in runPeriodicReview for topic ${topic}:`, reviewErr);
+        }
+      }
     } catch (err) {
       console.error(
         `[News Poll] Critical error in polling scheduler run: ${err instanceof Error ? err.message : String(err)}`

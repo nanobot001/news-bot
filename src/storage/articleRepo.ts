@@ -86,10 +86,7 @@ export async function saveArticle(
   statusReason?: string,
   discordMessageId?: string,
   discordChannelId?: string,
-  anchorId?: string | null,
-  anchorTopic?: string | null,
-  storyThreadId?: string | null,
-  lastStoryAddedAt?: Date | null,
+  storyId?: string | null,
   routingMetadata?: {
     intent: string;
     intentConfidence: number;
@@ -122,10 +119,7 @@ export async function saveArticle(
       rawJson: event.raw ? JSON.stringify(event.raw) : null,
       discordMessageId: discordMessageId !== undefined ? discordMessageId : undefined,
       discordChannelId: discordChannelId !== undefined ? discordChannelId : undefined,
-      anchorId: anchorId !== undefined ? anchorId : undefined,
-      anchorTopic: anchorTopic !== undefined ? anchorTopic : undefined,
-      storyThreadId: storyThreadId !== undefined ? storyThreadId : undefined,
-      lastStoryAddedAt: lastStoryAddedAt !== undefined ? lastStoryAddedAt : undefined,
+      storyId: storyId !== undefined ? storyId : undefined,
       intent: routingMetadata?.intent !== undefined ? routingMetadata.intent : undefined,
       intentConfidence: routingMetadata?.intentConfidence !== undefined ? routingMetadata.intentConfidence : undefined,
       route: routingMetadata?.route !== undefined ? routingMetadata.route : undefined,
@@ -147,10 +141,7 @@ export async function saveArticle(
       rawJson: event.raw ? JSON.stringify(event.raw) : null,
       discordMessageId: discordMessageId ?? null,
       discordChannelId: discordChannelId ?? null,
-      anchorId: anchorId ?? null,
-      anchorTopic: anchorTopic ?? null,
-      storyThreadId: storyThreadId ?? null,
-      lastStoryAddedAt: lastStoryAddedAt ?? null,
+      storyId: storyId ?? null,
       intent: routingMetadata?.intent ?? null,
       intentConfidence: routingMetadata?.intentConfidence ?? null,
       route: routingMetadata?.route ?? null,
@@ -505,6 +496,7 @@ export async function getCurationLogs(params: {
   topic: string;
   limit?: number;
   query?: string;
+  source?: string;
   status?: string;
 }): Promise<any[]> {
   const where: any = {
@@ -521,138 +513,18 @@ export async function getCurationLogs(params: {
     where.status = params.status;
   }
 
+  if (params.source) {
+    where.source = {
+      contains: params.source,
+    };
+  }
+
   return prisma.curationLog.findMany({
     where,
     orderBy: {
       createdAt: "desc",
     },
     take: params.limit ?? 10,
-  });
-}
-
-/**
- * Retrieves posted articles from the last 24 hours that are parent story anchors
- * (i.e. anchorId is null) and are not marked as CLOSED.
- */
-export async function getActiveAnchors(topic: string, limit = 20): Promise<Article[]> {
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  return prisma.article.findMany({
-    where: {
-      topic,
-      postedAt: { gte: cutoff },
-      anchorId: null,
-      status: ARTICLE_STATUSES.POSTED,
-      OR: [
-        { statusReason: null },
-        { statusReason: { not: "CLOSED" } },
-      ],
-    },
-    orderBy: { postedAt: "desc" },
-    take: limit,
-  });
-}
-
-/**
- * Sets the Discord thread ID for a parent story anchor.
- */
-export async function setStoryThreadId(id: string, topic: string, threadId: string): Promise<Article> {
-  return prisma.article.update({
-    where: { id_topic: { id, topic } },
-    data: { storyThreadId: threadId },
-  });
-}
-
-/**
- * Updates the lastStoryAddedAt timestamp for a parent story anchor.
- */
-export async function updateLastStoryAddedAt(id: string, topic: string, timestamp: Date): Promise<Article> {
-  return prisma.article.update({
-    where: { id_topic: { id, topic } },
-    data: { lastStoryAddedAt: timestamp },
-  });
-}
-
-/**
- * Marks a story anchor as CLOSED, meaning it will no longer receive automated thread updates.
- */
-export async function closeStoryAnchor(id: string, topic: string): Promise<Article> {
-  return prisma.article.update({
-    where: { id_topic: { id, topic } },
-    data: { statusReason: "CLOSED" },
-  });
-}
-
-/**
- * Links an article to a parent story anchor.
- */
-export async function linkToAnchor(
-  articleId: string,
-  articleTopic: string,
-  anchorId: string,
-  anchorTopic: string,
-  status: string
-): Promise<Article> {
-  return prisma.article.update({
-    where: { id_topic: { id: articleId, topic: articleTopic } },
-    data: {
-      anchorId,
-      anchorTopic,
-      status,
-    },
-  });
-}
-
-/**
- * Unlinks an article from its parent story anchor.
- */
-export async function unlinkFromAnchor(
-  articleId: string,
-  articleTopic: string,
-  newStatus: string
-): Promise<Article> {
-  return prisma.article.update({
-    where: { id_topic: { id: articleId, topic: articleTopic } },
-    data: {
-      anchorId: null,
-      anchorTopic: null,
-      status: newStatus,
-    },
-  });
-}
-
-/**
- * Retrieves parent story anchors that have a storyThreadId, are not closed,
- * and have had no new articles or updates for more than the inactivity threshold.
- */
-export async function getInactiveStoryAnchors(inactiveThresholdMs?: number): Promise<Article[]> {
-  const limitHours = process.env.THREAD_INACTIVE_LIMIT_HOURS 
-    ? parseFloat(process.env.THREAD_INACTIVE_LIMIT_HOURS) 
-    : 4;
-  const threshold = inactiveThresholdMs ?? (limitHours * 60 * 60 * 1000);
-  const cutoff = new Date(Date.now() - threshold);
-  return prisma.article.findMany({
-    where: {
-      anchorId: null,
-      storyThreadId: { not: null },
-      status: ARTICLE_STATUSES.POSTED,
-      AND: [
-        {
-          OR: [
-            { statusReason: null },
-            { statusReason: { not: "CLOSED" } },
-          ]
-        },
-        {
-          postedAt: { lt: cutoff }
-        },
-        {
-          OR: [
-            { lastStoryAddedAt: null },
-            { lastStoryAddedAt: { lt: cutoff } }
-          ]
-        }
-      ]
-    }
   });
 }
 

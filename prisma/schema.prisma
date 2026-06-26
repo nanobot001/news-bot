@@ -32,12 +32,9 @@ model Article {
   userFavorites UserFavorite[]
   emailForwards EmailForward[]
 
-  storyThreadId    String?
-  lastStoryAddedAt DateTime?
-  anchorId         String?
-  anchorTopic      String?
-  anchor           Article?   @relation("StoryCluster", fields: [anchorId, anchorTopic], references: [id, topic], onDelete: SetNull)
-  clusterMembers   Article[]  @relation("StoryCluster")
+  storyId          String?
+  story            Story?     @relation(fields: [storyId], references: [id], onDelete: SetNull)
+  signals          StorySignal[]
 
   @@id([id, topic])
   @@index([topic])
@@ -48,7 +45,7 @@ model Article {
   @@index([intent])
   @@index([route])
   @@index([discordMessageId])
-  @@index([anchorId, anchorTopic])
+  @@index([storyId])
 }
 
 model UserFavorite {
@@ -103,3 +100,71 @@ model CurationLog {
 
 
 
+
+model Event {
+  id              String   @id @default(uuid())
+  topic           String
+  title           String
+  discordThreadId String?
+  indexMessageId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  stories         Story[]
+
+  @@index([topic])
+}
+
+model Story {
+  id               String   @id @default(uuid())
+  eventId          String?
+  event            Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  topic            String
+  title            String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  status           String   @default("OPEN") // OPEN, MERGED, CLOSED
+  mergedIntoId     String?
+  mergedInto       Story?   @relation("MergedStory", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom       Story[]  @relation("MergedStory")
+  
+  discordThreadId  String?
+  lastActivityAt   DateTime @default(now())
+
+  articles         Article[]
+  signals          StorySignal[]
+
+  @@index([topic])
+  @@index([status])
+}
+
+model StorySignal {
+  id          String   @id @default(uuid())
+  storyId     String?
+  story       Story?   @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  articleId   String?
+  articleTopic String?
+  article     Article? @relation(fields: [articleId, articleTopic], references: [id, topic], onDelete: Cascade)
+  
+  type        String   // "ENTITY", "CUE"
+  value       String   // e.g., "LeBron James", "trade"
+  weight      Float    @default(1.0)
+
+  @@index([storyId])
+  @@index([articleId, articleTopic])
+  @@index([type, value])
+}
+
+model LlmReviewLog {
+  id          String   @id @default(uuid())
+  topic       String
+  actionType  String   // "MERGE", "SPLIT", "REASSIGN", "CREATE_STORY", "CREATE_EVENT"
+  targetId    String
+  targetType  String   // "STORY", "EVENT", "ARTICLE"
+  confidence  Float
+  reason      String
+  createdAt   DateTime @default(now())
+
+  @@index([topic])
+  @@index([actionType])
+  @@index([createdAt])
+}

@@ -1,5 +1,21 @@
 # Continue Here
 
+## 2026-06-25 (Real-Use Noise Feedback Captured)
+
+Current state:
+- After one to two weeks of real use, the main product concern is signal quality: too much channel noise, not enough useful consolidation, and too many threads that only collect one additional story.
+- The Gemini API has been downgraded to the free tier, so near-term fixes should not depend on frequent LLM review.
+- Updated Block 2-9 to focus on noise reduction, digest-first topic/intent policies, thread quality controls, and `toronto-eats` as a digest-heavy calibration case.
+- Updated Block 2-13 so story clustering remains important but starts from deterministic story signals and bounded/optional LLM review.
+
+Next step:
+- Implement revised Block 2-9 first. The immediate win should be fewer main-channel posts, stronger digest routing for noisy topics, and fewer shallow public threads.
+
+Do-not-forget checks:
+- Treat digests as the pressure valve for useful-but-lower-urgency items.
+- Preserve strong thread attachment for genuinely related stories, but raise the bar for creating a new public thread.
+- Keep Gemini usage optional and budget-aware until paid API usage is restored.
+
 ## 2026-06-11 (Block 2-8 Intent-Based Digests Implemented)
 
 Current state:

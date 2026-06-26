@@ -129,12 +129,12 @@ test("Digest Publisher", async (t) => {
     // Create two pending digest articles
     await saveArticle(
       { id: "digest-1", type: "news.article", topic: "toronto-eats", title: "Review 1", sourceName: "Source A", url: "https://a.com" },
-      30, null, ARTICLE_STATUSES.DIGEST_PENDING, null, undefined, undefined, undefined, undefined, undefined, undefined,
+      30, null, ARTICLE_STATUSES.DIGEST_PENDING, null, undefined, undefined, null,
       { intent: "aggregate", intentConfidence: 0.9, route: "digest_pending", routeReason: "test" }
     );
     await saveArticle(
       { id: "digest-2", type: "news.article", topic: "toronto-eats", title: "Review 2", sourceName: "Source B", url: "https://b.com" },
-      25, null, ARTICLE_STATUSES.DIGEST_PENDING, null, undefined, undefined, undefined, undefined, undefined, undefined,
+      25, null, ARTICLE_STATUSES.DIGEST_PENDING, null, undefined, undefined, null,
       { intent: "aggregate", intentConfidence: 0.8, route: "digest_pending", routeReason: "test" }
     );
     

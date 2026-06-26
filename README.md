@@ -63,7 +63,7 @@ Common optional variables:
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Optional SMTP settings for email forwarding. |
 | `ALLOW_ETHEREAL_FALLBACK` | Allows Ethereal test mail fallback outside development when set to `true`. |
 | `RSSHUB_BASE_URL` | Base URL of local or public RSSHub instance to use as fallback for failing YouTube feeds (e.g. `http://127.0.0.1:1200`). |
-| `THREAD_INACTIVE_LIMIT_HOURS` | Thread archival inactivity limit in hours (default: `4`). |
+| `THREAD_INACTIVE_LIMIT_HOURS` | Thread archival inactivity limit in hours (default: `12`). |
 
 
 Initialize Prisma and SQLite:
@@ -189,6 +189,7 @@ Topic autocomplete is sourced from configured topic names in `topics.json` and i
 - `/sources topic`
 - `/favorites topic`
 - `/audit topic`
+- `/audit source`
 - `/topic view topic`
 - `/topic set-channel topic`
 - `/topic set-threshold topic`
@@ -228,7 +229,7 @@ If the required context is missing, such as an unknown `topic`, autocomplete ret
 | `/sources` | `topic` optional | Anyone | `topic` | List configured RSS sources. |
 | `/favorites` | `topic`, `query`, `source`, `since`, `limit` optional | Anyone | `topic` | Recall your saved favorites. |
 | `/unfavorite` | `article` required | Anyone | `article` | Remove one of your saved favorites. |
-| `/audit` | `topic` required, `limit`, `query`, `status` optional | Bot manager | `topic` | View recent curation and scoring logs. |
+| `/audit` | `topic` required, `limit`, `query`, `source`, `status` optional | Bot manager | `topic` | View recent curation and scoring logs. |
 | `/topic` | subcommands below | Bot manager | `topic` where present | Manage topic lanes. |
 | `/source` | subcommands below | Bot manager | `topic` where present | Manage RSS sources. |
 | `/keyword` | subcommands below | Mixed | `topic`; `keyword` on remove | View and manage topic keywords. |
@@ -312,7 +313,7 @@ Configure `FORWARD_DESTINATION_EMAIL` and SMTP settings for production forwardin
 
 ### Curation Audit
 
-- `/audit topic:<topic> [limit] [query] [status]`: View recent curation and scoring logs.
+- `/audit topic:<topic> [limit] [query] [source] [status]`: View recent curation and scoring logs.
 
 Supported status filters:
 

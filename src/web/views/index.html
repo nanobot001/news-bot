@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editorial Control Panel - News Bot</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #0b0f19;
+      --bg-surface: rgba(17, 24, 39, 0.7);
+      --bg-card: rgba(31, 41, 55, 0.4);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --text-primary: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --accent-cyan: #06b6d4;
+      --accent-purple: #a855f7;
+      --accent-orange: #f97316;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --glass-blur: blur(12px);
+      --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.15);
+      --font-outfit: 'Outfit', sans-serif;
+      --font-inter: 'Inter', sans-serif;
+      --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-inter);
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(6, 182, 212, 0.05) 0%, transparent 40%);
+    }
+
+    header {
+      backdrop-filter: var(--glass-blur);
+      background-color: rgba(11, 15, 25, 0.8);
+      border-bottom: 1px solid var(--border-color);
+      padding: 1.25rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-glow {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background-color: var(--primary);
+      box-shadow: 0 0 10px var(--primary);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.9); opacity: 0.6; }
+      50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 15px var(--primary); }
+      100% { transform: scale(0.9); opacity: 0.6; }
+    }
+
+    h1 {
+      font-family: var(--font-outfit);
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    .filters-container {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    select, input, button {
+      background-color: rgba(17, 24, 39, 0.8);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-family: var(--font-inter);
+      font-size: 0.875rem;
+      outline: none;
+      transition: var(--transition);
+    }
+
+    select:focus, input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+    }
+
+    button {
+      background-color: var(--primary);
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+    }
+
+    button:hover {
+      background-color: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+
+    main {
+      max-width: 1600px;
+      margin: 2rem auto;
+      padding: 0 2rem;
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 2rem;
+    }
+
+    .panel {
+      backdrop-filter: var(--glass-blur);
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: var(--shadow-glow);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 0.75rem;
+    }
+
+    .panel-title {
+      font-family: var(--font-outfit);
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .story-river {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .story-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 1.25rem;
+      transition: var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .story-card:hover {
+      border-color: rgba(99, 102, 241, 0.3);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .story-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .story-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .story-event-tag {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      color: var(--accent-cyan);
+    }
+
+    .story-title {
+      font-family: var(--font-outfit);
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .story-meta {
+      display: flex;
+      gap: 1rem;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+    }
+
+    .story-badge {
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }
+
+    .badge-open { background-color: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-merged { background-color: rgba(168, 85, 247, 0.15); color: var(--accent-purple); border: 1px solid rgba(168, 85, 247, 0.3); }
+    .badge-closed { background-color: rgba(156, 163, 175, 0.15); color: var(--text-secondary); border: 1px solid rgba(156, 163, 175, 0.3); }
+
+    .articles-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      border-top: 1px solid var(--border-color);
+      padding-top: 0.75rem;
+    }
+
+    .article-item {
+      background-color: rgba(17, 24, 39, 0.4);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      transition: var(--transition);
+    }
+
+    .article-item:hover {
+      background-color: rgba(17, 24, 39, 0.6);
+    }
+
+    .article-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .article-title {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text-primary);
+      text-decoration: none;
+      transition: var(--transition);
+    }
+
+    .article-title:hover {
+      color: var(--accent-cyan);
+    }
+
+    .article-meta {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .article-score {
+      background-color: rgba(99, 102, 241, 0.1);
+      color: var(--primary);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .actions-cell {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .btn-action {
+      background: none;
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 0.35rem 0.6rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.75rem;
+      transition: var(--transition);
+    }
+
+    .btn-action:hover {
+      border-color: var(--primary);
+      color: var(--text-primary);
+      background-color: rgba(99, 102, 241, 0.1);
+    }
+
+    .logs-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      max-height: 700px;
+      overflow-y: auto;
+      padding-right: 0.5rem;
+    }
+
+    .log-item {
+      background-color: rgba(17, 24, 39, 0.3);
+      border-left: 4px solid var(--primary);
+      border-top: 1px solid var(--border-color);
+      border-right: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+      border-radius: 0 8px 8px 0;
+      padding: 0.75rem 1rem;
+      font-size: 0.825rem;
+    }
+
+    .log-item.merge { border-left-color: var(--accent-purple); }
+    .log-item.split { border-left-color: var(--accent-cyan); }
+    .log-item.reassign { border-left-color: var(--accent-orange); }
+    .log-item.event { border-left-color: var(--accent-green); }
+
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.25rem;
+    }
+
+    .log-type {
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 0.75rem;
+    }
+
+    .log-time {
+      color: var(--text-secondary);
+      font-size: 0.7rem;
+    }
+
+    .log-reason {
+      color: var(--text-secondary);
+      margin-top: 0.25rem;
+      line-height: 1.3;
+    }
+
+    /* Modal Styling */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      display: none;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal {
+      background-color: #0f172a;
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      max-width: 500px;
+      width: 90%;
+      padding: 1.5rem;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-title {
+      font-family: var(--font-outfit);
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+
+    .modal-group {
+      margin-bottom: 1rem;
+    }
+
+    .modal-group label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.35rem;
+      font-weight: 500;
+    }
+
+    .modal-group input, .modal-group select, .modal-group textarea {
+      width: 100%;
+      background-color: rgba(17, 24, 39, 0.8);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      padding: 0.6rem;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      outline: none;
+    }
+
+    .modal-group textarea {
+      resize: vertical;
+      height: 80px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      margin-top: 1.5rem;
+    }
+
+    .btn-cancel {
+      background-color: transparent;
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-cancel:hover {
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="logo-container">
+      <div class="logo-glow"></div>
+      <h1>EDITORIAL CONTROL PANEL</h1>
+    </div>
+    <div class="filters-container">
+      <select id="filter-topic">
+        <option value="">All Topics</option>
+      </select>
+      <select id="filter-hours">
+        <option value="24">Last 24 Hours</option>
+        <option value="48" selected>Last 48 Hours</option>
+        <option value="72">Last 72 Hours</option>
+      </select>
+      <button onclick="loadData()">Refresh</button>
+      <button id="btn-trigger-review" onclick="triggerReview()" style="background-color: var(--accent-purple); margin-left: 0.5rem;">Run LLM Review</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left column: Story River -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">Coverage River</h2>
+        <span id="stories-count" style="font-size: 0.8rem; color: var(--text-secondary);">0 stories active</span>
+      </div>
+      <div class="story-river" id="stories-list-container">
+        <!-- Dynamic content -->
+      </div>
+    </section>
+
+    <!-- Right column: LLM review logs -->
+    <section class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">LLM Editorial Logs</h2>
+      </div>
+      <div class="logs-list" id="logs-container">
+        <!-- Dynamic logs -->
+      </div>
+    </section>
+  </main>
+
+  <!-- Split / Reassign Modal -->
+  <div class="modal-overlay" id="reassign-modal">
+    <div class="modal">
+      <h3 class="modal-title">Split or Reassign Article</h3>
+      <div class="modal-group">
+        <label>Article Title</label>
+        <input type="text" id="modal-art-title" readonly style="opacity: 0.7;">
+        <input type="hidden" id="modal-art-id">
+        <input type="hidden" id="modal-art-topic">
+      </div>
+      <div class="modal-group">
+        <label>Destination Story</label>
+        <select id="modal-target-story">
+          <option value="NEW">Split into New Story...</option>
+        </select>
+      </div>
+      <div class="modal-group" id="new-story-title-group">
+        <label>New Story Title</label>
+        <input type="text" id="modal-new-story-title" placeholder="Enter custom title for the new story thread">
+      </div>
+      <div class="modal-group">
+        <label>Reason / Log Comment</label>
+        <textarea id="modal-reassign-reason" placeholder="Optional editorial note..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeReassignModal()">Cancel</button>
+        <button onclick="submitReassign()">Execute Action</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Merge Modal -->
+  <div class="modal-overlay" id="merge-modal">
+    <div class="modal">
+      <h3 class="modal-title">Merge Story Thread</h3>
+      <div class="modal-group">
+        <label>Source Story (Will be merged and closed)</label>
+        <input type="text" id="modal-merge-src-title" readonly style="opacity: 0.7;">
+        <input type="hidden" id="modal-merge-src-id">
+      </div>
+      <div class="modal-group">
+        <label>Target Story (Will receive all articles)</label>
+        <select id="modal-merge-target-story">
+          <!-- Options will be populated -->
+        </select>
+      </div>
+      <div class="modal-group">
+        <label>Reason / Log Comment</label>
+        <textarea id="modal-merge-reason" placeholder="Optional editorial note..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeMergeModal()">Cancel</button>
+        <button onclick="submitMerge()">Merge Stories</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let allStories = [];
+
+    // Initialize Page
+    window.addEventListener('DOMContentLoaded', async () => {
+      await loadTopics();
+      await loadData();
+
+      // Listen for target story selection in reassignment modal to toggle new title input
+      document.getElementById('modal-target-story').addEventListener('change', (e) => {
+        const titleGroup = document.getElementById('new-story-title-group');
+        if (e.target.value === 'NEW') {
+          titleGroup.style.display = 'block';
+        } else {
+          titleGroup.style.display = 'none';
+        }
+      });
+    });
+
+    async function loadTopics() {
+      try {
+        const res = await fetch('/api/topics');
+        const topics = await res.json();
+        const dropdown = document.getElementById('filter-topic');
+        topics.forEach(topic => {
+          const opt = document.createElement('option');
+          opt.value = topic;
+          opt.textContent = topic;
+          dropdown.appendChild(opt);
+        });
+      } catch (err) {
+        console.error("Failed to load topics:", err);
+      }
+    }
+
+    async function triggerReview() {
+      const btn = document.getElementById('btn-trigger-review');
+      const originalText = btn.textContent;
+      btn.textContent = 'Running Review...';
+      btn.disabled = true;
+      btn.style.opacity = '0.7';
+
+      try {
+        const res = await fetch('/api/review', { method: 'POST' });
+        if (res.ok) {
+          await loadData();
+        } else {
+          alert('Failed to trigger LLM review');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Error triggering LLM review');
+      } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      }
+    }
+
+    async function loadData() {
+      const topic = document.getElementById('filter-topic').value;
+      const hours = document.getElementById('filter-hours').value;
+
+      try {
+        // Load Stories
+        const storiesRes = await fetch(`/api/stories?topic=${topic}&hours=${hours}`);
+        allStories = await storiesRes.json();
+        renderStories(allStories);
+
+        // Load Logs
+        const logsRes = await fetch('/api/logs');
+        const logs = await logsRes.json();
+        renderLogs(logs);
+      } catch (err) {
+        console.error("Failed to load data:", err);
+      }
+    }
+
+    function renderStories(stories) {
+      const container = document.getElementById('stories-list-container');
+      const countLabel = document.getElementById('stories-count');
+      
+      container.innerHTML = '';
+      countLabel.textContent = `${stories.length} stories active`;
+
+      if (stories.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 2rem;">No active stories found.</div>';
+        return;
+      }
+
+      stories.forEach(story => {
+        const card = document.createElement('div');
+        card.className = `story-card ${story.status.toLowerCase()}`;
+        
+        let statusBadge = '';
+        if (story.status === 'OPEN') statusBadge = '<span class="story-badge badge-open">Open</span>';
+        else if (story.status === 'MERGED') statusBadge = '<span class="story-badge badge-merged">Merged</span>';
+        else if (story.status === 'CLOSED') statusBadge = '<span class="story-badge badge-closed">Closed</span>';
+
+        // Render articles list HTML
+        let articlesHtml = '';
+        if (story.articles && story.articles.length > 0) {
+          articlesHtml = `
+            <div class="articles-list">
+              ${story.articles.map(art => `
+                <div class="article-item">
+                  <div class="article-info">
+                    <a href="${art.url}" target="_blank" class="article-title">${escapeHtml(art.title)}</a>
+                    <div class="article-meta">
+                      <span>Source: ${escapeHtml(art.source)}</span>
+                      ${art.score ? `<span class="article-score">Score: ${art.score}</span>` : ''}
+                      <span>Status: ${art.status}</span>
+                    </div>
+                  </div>
+                  <div class="actions-cell">
+                    <button class="btn-action" onclick="openReassignModal('${art.id}', '${art.topic}', '${escapeHtml(art.title)}')">Reassign</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        } else {
+          articlesHtml = '<div style="font-size: 0.8rem; color: var(--text-secondary); padding-top: 0.5rem;">No articles linked to this story.</div>';
+        }
+
+        card.innerHTML = `
+          <div class="story-card-header">
+            <div class="story-title-group">
+              ${story.event && story.event.title !== story.title ? `<span class="story-event-tag">✦ Event: ${escapeHtml(story.event.title)}</span>` : ''}
+              <h3 class="story-title">${escapeHtml(story.title)}</h3>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              ${statusBadge}
+              ${story.status === 'OPEN' ? `<button class="btn-action" style="border-color: rgba(99, 102, 241, 0.4); color: var(--primary);" onclick="openMergeModal('${story.id}', '${escapeHtml(story.title)}')">Merge</button>` : ''}
+            </div>
+          </div>
+          <div class="story-meta">
+            <span>Topic: ${story.topic}</span>
+            <span>Created: ${new Date(story.createdAt).toLocaleTimeString()}</span>
+            <span>Last Activity: ${new Date(story.lastActivityAt).toLocaleTimeString()}</span>
+          </div>
+          ${articlesHtml}
+        `;
+        
+        container.appendChild(card);
+      });
+    }
+
+    function renderLogs(logs) {
+      const container = document.getElementById('logs-container');
+      container.innerHTML = '';
+
+      if (logs.length === 0) {
+        container.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 2rem;">No logs recorded yet.</div>';
+        return;
+      }
+
+      logs.forEach(log => {
+        const item = document.createElement('div');
+        const typeClass = log.actionType.toLowerCase().replace('create_event', 'event');
+        item.className = `log-item ${typeClass}`;
+        
+        item.innerHTML = `
+          <div class="log-header">
+            <span class="log-type" style="color: var(--accent-${typeClass === 'merge' ? 'purple' : (typeClass === 'split' ? 'cyan' : (typeClass === 'reassign' ? 'orange' : 'green'))})">${log.actionType}</span>
+            <span class="log-time">${new Date(log.createdAt).toLocaleString()}</span>
+          </div>
+          <div>Topic: <strong>${log.topic}</strong> | Target: ${log.targetType} (${log.targetId})</div>
+          <div class="log-reason">${escapeHtml(log.reason)}</div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // Modal Control: Reassign
+    function openReassignModal(articleId, topic, title) {
+      document.getElementById('modal-art-id').value = articleId;
+      document.getElementById('modal-art-topic').value = topic;
+      document.getElementById('modal-art-title').value = title;
+      
+      const select = document.getElementById('modal-target-story');
+      // Clear options keeping the first one
+      select.innerHTML = '<option value="NEW">Split into New Story...</option>';
+      
+      // Filter open stories of same topic
+      allStories.filter(s => s.status === 'OPEN' && s.topic === topic).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.title;
+        select.appendChild(opt);
+      });
+
+      document.getElementById('new-story-title-group').style.display = 'block';
+      document.getElementById('modal-new-story-title').value = `New Story: ${title}`;
+      document.getElementById('modal-reassign-reason').value = '';
+
+      document.getElementById('reassign-modal').style.display = 'flex';
+    }
+
+    function closeReassignModal() {
+      document.getElementById('reassign-modal').style.display = 'none';
+    }
+
+    async function submitReassign() {
+      const articleId = document.getElementById('modal-art-id').value;
+      const articleTopic = document.getElementById('modal-art-topic').value;
+      const targetStoryId = document.getElementById('modal-target-story').value;
+      const newStoryTitle = document.getElementById('modal-new-story-title').value;
+      const reason = document.getElementById('modal-reassign-reason').value;
+
+      try {
+        const res = await fetch('/api/articles/reassign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ articleId, articleTopic, targetStoryId, newStoryTitle, reason })
+        });
+        if (res.ok) {
+          closeReassignModal();
+          await loadData();
+        } else {
+          alert('Failed to reassign article');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // Modal Control: Merge
+    function openMergeModal(storyId, title) {
+      document.getElementById('modal-merge-src-id').value = storyId;
+      document.getElementById('modal-merge-src-title').value = title;
+
+      const select = document.getElementById('modal-merge-target-story');
+      select.innerHTML = '<option value="" disabled selected>Select target story...</option>';
+
+      // Populate other open stories from the same topic
+      const srcStory = allStories.find(s => s.id === storyId);
+      allStories.filter(s => s.status === 'OPEN' && s.id !== storyId && s.topic === srcStory.topic).forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.title;
+        select.appendChild(opt);
+      });
+
+      document.getElementById('modal-merge-reason').value = '';
+      document.getElementById('merge-modal').style.display = 'flex';
+    }
+
+    function closeMergeModal() {
+      document.getElementById('merge-modal').style.display = 'none';
+    }
+
+    async function submitMerge() {
+      const sourceStoryId = document.getElementById('modal-merge-src-id').value;
+      const targetStoryId = document.getElementById('modal-merge-target-story').value;
+      const reason = document.getElementById('modal-merge-reason').value;
+
+      if (!targetStoryId) {
+        alert('Please select a target story');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/stories/merge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sourceStoryId, targetStoryId, reason })
+        });
+        if (res.ok) {
+          closeMergeModal();
+          await loadData();
+        } else {
+          alert('Failed to merge stories');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>

@@ -25,6 +25,9 @@ import { filterArticle } from "../processing/filterArticle.js";
 import { formatArticleEmbed, postArticleToChannel } from "./postEmbed.js";
 import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
 import { cleanThreadTitle } from "../processing/similarity.js";
+import { runPeriodicReview } from "../services/llmReview.js";
+import { setEventThreadAndIndex } from "../storage/storyRepo.js";
+import { updateEventIndex, generateIndexEmbed } from "./indexManager.js";
 
 export const removeArticleCommand = new ContextMenuCommandBuilder().setName("Remove Article").setType(ApplicationCommandType.Message);
 
@@ -289,6 +292,12 @@ export const auditCommand = new SlashCommandBuilder()
     option.setName("query")
       .setDescription("Search query for article title (optional)")
       .setRequired(false)
+  )
+  .addStringOption(option =>
+    option.setName("source")
+      .setDescription("Filter by news source name (optional)")
+      .setRequired(false)
+      .setAutocomplete(true)
   )
   .addStringOption(option =>
     option.setName("status")
@@ -883,7 +892,7 @@ export async function handleRefreshCommand(
       const errorsList: Array<{ topic: string; source: string; message: string }> = [];
       const countsMap = await pollNews(client, appConfig, errorsList, topic ?? undefined, false);
 
-      let responseText = `**Feed Refresh Complete**\n\n`;
+      let responseText = `**Feed Refresh Complete & Running LLM Review...**\n\n`;
       let totalNew = 0;
       let totalPosted = 0;
 
@@ -908,6 +917,23 @@ export async function handleRefreshCommand(
       }
 
       await interaction.editReply({ content: responseText });
+
+      // Run LLM review for the refreshed topics
+      const refreshedTopics = topic ? [topic] : Object.keys(appConfig.topics);
+      let reviewLogged = false;
+      for (const t of refreshedTopics) {
+        try {
+          await runPeriodicReview(t, client);
+          reviewLogged = true;
+        } catch (reviewErr) {
+          console.error(`[Refresh Command] Error in runPeriodicReview for topic ${t}:`, reviewErr);
+        }
+      }
+
+      if (reviewLogged) {
+        responseText += `\n**LLM Editorial Review pass completed!** Duplicate threads merged & consolidated.`;
+        await interaction.editReply({ content: responseText });
+      }
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -1322,6 +1348,7 @@ export async function handleAuditCommand(
   const topic = interaction.options.getString("topic", true);
   const limitInput = interaction.options.getInteger("limit");
   const query = interaction.options.getString("query");
+  const source = interaction.options.getString("source");
   const status = interaction.options.getString("status");
 
   const limit = limitInput ? Math.min(Math.max(limitInput, 1), 100) : 10;
@@ -1342,6 +1369,7 @@ export async function handleAuditCommand(
       topic,
       limit,
       query: query ?? undefined,
+      source: source ?? undefined,
       status: status ?? undefined
     });
 
@@ -1352,9 +1380,15 @@ export async function handleAuditCommand(
       return;
     }
 
-    let outputText = `**Curation Audit Logs for topic: "${topic}"** (showing ${logs.length} items):\n\n`;
+    const filterParts = [
+      `topic: "${topic}"`,
+      source ? `source: "${source}"` : null,
+      status ? `status: "${status}"` : null,
+      query ? `query: "${query}"` : null,
+    ].filter(Boolean).join(", ");
+    let outputText = `**Curation Audit Logs for ${filterParts}** (showing ${logs.length} items):\n\n`;
     let fileText = `=========================================\n`;
-    fileText += `CURATION AUDIT LOGS FOR TOPIC: ${topic.toUpperCase()}\n`;
+    fileText += `CURATION AUDIT LOGS FOR ${filterParts.toUpperCase()}\n`;
     fileText += `Generated: ${new Date().toISOString()}\n`;
     fileText += `=========================================\n\n`;
 
@@ -1400,6 +1434,7 @@ export async function handleAuditCommand(
       const allRemovedLogs = await getCurationLogs({
         topic,
         limit: 100,
+        source: source ?? undefined,
         status: "REMOVED"
       });
 
@@ -1451,9 +1486,10 @@ export async function handleAuditCommand(
 
     if (outputText.length > 1950 || limit > 15) {
       const buffer = Buffer.from(fileText, "utf-8");
-      const attachment = new AttachmentBuilder(buffer, { name: `audit-log-${topic}.txt` });
+      const sourceSlug = source ? `-${source.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}` : "";
+      const attachment = new AttachmentBuilder(buffer, { name: `audit-log-${topic}${sourceSlug}.txt` });
       await interaction.editReply({
-        content: `Audit log list is too long for a Discord message, or a large limit was requested. Attached is the full log text file for **${topic}** (${logs.length} entries).`,
+        content: `Audit log list is too long for a Discord message, or a large limit was requested. Attached is the full log text file for **${filterParts}** (${logs.length} entries).`,
         files: [attachment]
       });
     } else {
@@ -2614,12 +2650,18 @@ export async function handleMergeToThreadCommand(
     return;
   }
 
-  if (article.storyThreadId) {
-    await interaction.reply({
-      content: "Error: This article is already an active thread anchor. You cannot merge a thread anchor into another thread.",
-      ephemeral: true
+  if (article.storyId) {
+    const story = await prisma.story.findUnique({
+      where: { id: article.storyId },
+      include: { event: true }
     });
-    return;
+    if (story?.event?.discordThreadId === article.discordMessageId) {
+      await interaction.reply({
+        content: "Error: This article is already an active thread anchor. You cannot merge a thread anchor into another thread.",
+        ephemeral: true
+      });
+      return;
+    }
   }
 
   // Create the modal
@@ -2688,11 +2730,17 @@ export async function handleMergeToThreadModal(
       return;
     }
 
-    if (anchorArticle.anchorId) {
-      await interaction.editReply({
-        content: "Error: The selected anchor is already a child of another thread. You can only merge into a parent anchor."
+    if (anchorArticle.storyId) {
+      const anchorStory = await prisma.story.findUnique({
+        where: { id: anchorArticle.storyId },
+        include: { event: true }
       });
-      return;
+      if (anchorStory?.event?.discordThreadId && anchorStory.event.discordThreadId !== anchorArticle.discordMessageId) {
+        await interaction.editReply({
+          content: "Error: The selected anchor is already a child of another thread. You can only merge into a parent anchor."
+        });
+        return;
+      }
     }
 
     if (childArticle.id === anchorArticle.id && childArticle.topic === anchorArticle.topic) {
@@ -2726,29 +2774,71 @@ export async function handleMergeToThreadModal(
       return;
     }
 
-    let threadId = anchorArticle.storyThreadId;
+    let storyId = anchorArticle.storyId;
+    let story: any = storyId ? await prisma.story.findUnique({ where: { id: storyId }, include: { event: true } }) : null;
+
+    if (!story) {
+      // Create a new Story for the anchor
+      story = await prisma.story.create({
+        data: {
+          topic: anchorArticle.topic,
+          title: anchorArticle.title,
+        }
+      });
+      story = await prisma.story.findUnique({
+        where: { id: story.id },
+        include: { event: true }
+      }) as any;
+      storyId = story!.id;
+
+      // Link the anchor article to the new story
+      await prisma.article.update({
+        where: { id_topic: { id: anchorArticle.id, topic: anchorArticle.topic } },
+        data: { storyId }
+      });
+    }
+
+    let threadId = story!.event?.discordThreadId;
     let thread: any;
 
-    if (!threadId) {
+    if (!threadId && story!.event) {
       // Create thread on anchor message
-      const threadTitle = cleanThreadTitle(anchorArticle.title);
+      const threadTitle = cleanThreadTitle(story!.event.title);
       thread = await anchorMsg.startThread({
         name: threadTitle,
         autoArchiveDuration: 1440 // 24 hours
       });
       threadId = thread.id;
 
-      // Update anchor in DB
-      await prisma.article.update({
-        where: { id_topic: { id: anchorArticle.id, topic: anchorArticle.topic } },
-        data: { storyThreadId: threadId }
+      // Generate the initial Coverage Index message and pin it
+      const eventWithStories = await prisma.event.findUnique({
+        where: { id: story!.event.id },
+        include: {
+          stories: {
+            where: { status: "OPEN" },
+            include: {
+              articles: {
+                where: { status: { in: ["POSTED", "RELATED_COVERAGE"] } },
+                orderBy: { publishedAt: "asc" }
+              }
+            }
+          }
+        }
       });
+
+      const storiesList = eventWithStories?.stories || [];
+      const indexEmbed = generateIndexEmbed(story!.event.title, storiesList, threadId!);
+      const indexMsg = await thread.send({ embeds: [indexEmbed] });
+      await indexMsg.pin().catch((err: any) => console.warn("Failed to pin index message:", err));
+
+      // Update event in DB with the thread ID and index ID
+      await setEventThreadAndIndex(story!.event!.id, threadId!, indexMsg.id);
 
       // Ping managers in the new thread
       const mentions = getManagerMentions();
       if (mentions) {
         await (thread as any).send({
-          content: `🧵 New story thread created. Alert: ${mentions}`
+          content: `🧵 New event thread created. Alert: ${mentions}`
         });
       }
 
@@ -2763,7 +2853,7 @@ export async function handleMergeToThreadModal(
         }
       }
     } else {
-      thread = await client.channels.fetch(threadId);
+      thread = await client.channels.fetch(threadId!);
     }
 
     if (!thread) {
@@ -2779,7 +2869,7 @@ export async function handleMergeToThreadModal(
       event: {
         id: childArticle.id,
         type: "news.article",
-        title: childArticle.title,
+        title: `[${story!.title}] ${childArticle.title}`,
         url: childArticle.url ?? "",
         sourceName: childArticle.source,
         topic: childArticle.topic,
@@ -2807,8 +2897,7 @@ export async function handleMergeToThreadModal(
     await prisma.article.update({
       where: { id_topic: { id: childArticle.id, topic: childArticle.topic } },
       data: {
-        anchorId: anchorArticle.id,
-        anchorTopic: anchorArticle.topic,
+        storyId: story!.id,
         discordChannelId: thread.id,
         discordMessageId: threadMsg.id,
         status: ARTICLE_STATUSES.RELATED_COVERAGE,
@@ -2816,11 +2905,16 @@ export async function handleMergeToThreadModal(
       }
     });
 
-    // Update anchor's lastStoryAddedAt
-    await prisma.article.update({
-      where: { id_topic: { id: anchorArticle.id, topic: anchorArticle.topic } },
-      data: { lastStoryAddedAt: new Date() }
+    // Update story's lastActivityAt
+    await prisma.story.update({
+      where: { id: story!.id },
+      data: { lastActivityAt: new Date() }
     });
+
+    // Update Event Index
+    if (story!.event) {
+      await updateEventIndex(client, story!.event.id);
+    }
 
     await interaction.editReply({
       content: `✅ Successfully merged "${childArticle.title}" into thread under anchor "${anchorArticle.title}".`
@@ -2865,9 +2959,21 @@ export async function handleRemoveFromThreadCommand(
       return;
     }
 
-    if (!childArticle.anchorId) {
+    if (!childArticle.storyId) {
       await interaction.editReply({
-        content: "Error: This article is not a child inside a thread."
+        content: "Error: This article is not associated with any story."
+      });
+      return;
+    }
+
+    const story = await prisma.story.findUnique({
+      where: { id: childArticle.storyId },
+      include: { event: true }
+    });
+
+    if (!story || !story.event?.discordThreadId || story.event.discordThreadId === childArticle.discordMessageId) {
+      await interaction.editReply({
+        content: "Error: This article is not a child inside a thread (it may be the anchor or has no thread)."
       });
       return;
     }
@@ -2920,14 +3026,18 @@ export async function handleRemoveFromThreadCommand(
     await prisma.article.update({
       where: { id_topic: { id: childArticle.id, topic: childArticle.topic } },
       data: {
-        anchorId: null,
-        anchorTopic: null,
+        storyId: null,
         discordChannelId: topicConfig.channelId,
         discordMessageId: newMsg.id,
         status: ARTICLE_STATUSES.POSTED,
         statusReason: "Manually split from thread by operator"
       }
     });
+
+    // Update Event Index
+    if (story.event) {
+      await updateEventIndex(client, story.event.id);
+    }
 
     await interaction.editReply({
       content: `✅ Successfully split "${childArticle.title}" out of thread and reposted in main channel.`

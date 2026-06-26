@@ -93,3 +93,58 @@ export function cleanThreadTitle(title: string): string {
 
   return cleaned || "New Story Thread";
 }
+
+import type { Story, StorySignal, Article } from "@prisma/client";
+import { type Signal } from "./signals.js";
+
+type StoryWithRelations = Story & { signals: StorySignal[], articles: Article[] };
+
+export function calculateSignalSimilarity(eventSignals: Signal[], storySignals: StorySignal[]): number {
+  if (eventSignals.length === 0 || storySignals.length === 0) return 0;
+  
+  // Basic Jaccard-like similarity for signals
+  const eventSet = new Set(eventSignals.map(s => `${s.type}:${s.value.toLowerCase()}`));
+  const storySet = new Set(storySignals.map(s => `${s.type}:${s.value.toLowerCase()}`));
+  
+  let intersectionCount = 0;
+  for (const item of eventSet) {
+    if (storySet.has(item)) intersectionCount++;
+  }
+  
+  const unionSize = eventSet.size + storySet.size - intersectionCount;
+  return intersectionCount / unionSize;
+}
+
+export function findBestStoryMatch(
+  eventTitle: string, 
+  eventSignals: Signal[], 
+  activeStories: StoryWithRelations[],
+  signalThreshold: number = 0.3,
+  jaccardThreshold: number = 0.25
+): { story: StoryWithRelations | null, score: number, reason: string } {
+  let bestStory: StoryWithRelations | null = null;
+  let bestScore = 0;
+  let matchReason = "none";
+
+  for (const story of activeStories) {
+    // 1. Try Signal Match first
+    const signalScore = calculateSignalSimilarity(eventSignals, story.signals);
+    if (signalScore >= signalThreshold && signalScore > bestScore) {
+      bestScore = signalScore;
+      bestStory = story;
+      matchReason = "signal";
+    }
+    
+    // 2. Fallback to Jaccard Match on the main story title if signals are weak
+    if (matchReason !== "signal") {
+      const jaccardScore = calculateJaccardSimilarity(eventTitle, story.title);
+      if (jaccardScore >= jaccardThreshold && jaccardScore > bestScore) {
+        bestScore = jaccardScore;
+        bestStory = story;
+        matchReason = "title_jaccard";
+      }
+    }
+  }
+
+  return { story: bestScore > 0 ? bestStory : null, score: bestScore, reason: matchReason };
+}

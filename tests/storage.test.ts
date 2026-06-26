@@ -318,10 +318,7 @@ test("Storage and Deduplication System", async (t) => {
       "Stored for digest",
       undefined,
       undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+      null,
       {
         intent: "discussion",
         intentConfidence: 0.82,

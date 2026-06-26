@@ -105,6 +105,11 @@ test("Curation Log Operations", async (t) => {
     assert.equal(queryLogs.length, 1);
     assert.equal(queryLogs[0].title, "Bad Article");
 
+    // Get filter by source
+    const sourceLogs = await getCurationLogs({ topic: "tech", source: "Tech" });
+    assert.equal(sourceLogs.length, 1);
+    assert.equal(sourceLogs[0].source, "TechCrunch");
+
     // Check raw score and parsed breakdown list
     assert.equal(postedLogs[0].score, 85);
     const parsed = JSON.parse(postedLogs[0].breakdown);
@@ -265,6 +270,55 @@ test("handleAuditCommand execution", async (t) => {
     assert.ok(deferred);
     assert.ok(replyPayload.content.includes("Curation Audit Logs for topic: \"tech\""));
     assert.ok(replyPayload.content.includes("Small Log Title"));
+  });
+
+  await t.test("should filter audit logs by source", async () => {
+    process.env.BOT_MANAGER_USER_IDS = "111";
+    process.env.BOT_MANAGER_ROLE_IDS = "";
+
+    await saveCurationLog({
+      title: "Sportsnet Story",
+      url: "https://example.com/sportsnet",
+      source: "Sportsnet",
+      topic: "tech",
+      status: "POSTED",
+      score: 70,
+      breakdown: ["Reason Sportsnet"]
+    });
+
+    await saveCurationLog({
+      title: "Ignored ESPN Story",
+      url: "https://example.com/espn",
+      source: "ESPN",
+      topic: "tech",
+      status: "POSTED",
+      score: 80,
+      breakdown: ["Reason ESPN"]
+    });
+
+    let replyPayload: any = null;
+
+    const mockInteraction: any = {
+      user: { id: "111" },
+      options: {
+        getString: (name: string) => {
+          if (name === "topic") return "tech";
+          if (name === "source") return "Sportsnet";
+          return null;
+        },
+        getInteger: (name: string) => null,
+      },
+      deferReply: async () => {},
+      editReply: async (payload: any) => {
+        replyPayload = payload;
+        return {} as any;
+      },
+    };
+
+    await handleAuditCommand(mockInteraction, mockAppConfig);
+    assert.ok(replyPayload.content.includes('source: "Sportsnet"'));
+    assert.ok(replyPayload.content.includes("Sportsnet Story"));
+    assert.ok(!replyPayload.content.includes("Ignored ESPN Story"));
   });
 
   await t.test("should upload text file attachment if limit > 15", async () => {
