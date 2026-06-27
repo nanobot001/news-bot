@@ -47,6 +47,22 @@ Routes determine what happens after scoring:
 
 The selected intent, confidence, route, and reasons are stored on the article and included in curation logs.
 
+## Posting Controls
+
+After content intent routing, a pure posting-controls pass applies deterministic signal-preserving caps before anything is posted. This layer is designed to reduce noise by sending lower-priority but still useful items into digest instead of spending immediate slots on the first eligible item seen in the poll.
+
+Posting controls apply in this order:
+
+- hard filter and skip outcomes
+- digest-first topic or intent policy
+- source and intent caps
+- topic caps and cooldown
+- immediate post fallback
+
+Immediate candidates are sorted by deterministic priority using score, source trust, source tier, intent, recency, and high-signal title cues before caps are applied.
+
+In the first pass, throttled-but-useful items are stored as `DIGEST_PENDING`. Only immediate `POSTED` articles count toward posting caps; `POSTED_DIGEST` does not.
+
 ## Scheduler Flow
 
 The scheduled job should:
@@ -60,7 +76,8 @@ for each topic
     dedupe
     score
     classify content intent and route
-    post immediate eligible items
+    evaluate posting controls and prioritize immediate candidates
+    post immediate high-signal items
     store digest/review/thread-only outcomes
     store results
 ```

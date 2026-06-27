@@ -10,6 +10,7 @@ Keep active, not-yet-implemented blocks directly in this folder. Move completed 
 2. `block-2-11-sports-schedule-event-phase.md`: Blue Jays and Raptors sports team context with cached season schedules and event phase routing.
 3. `block-2-12-assisted-event-context-discovery.md`: Manager-approved discovery of event contexts for topics such as AI, gaming, conferences, elections, and product launches.
 4. `block-2-13-story-signal-clustering.md`: Topic-agnostic story signal extraction and clustering so related coverage can attach by story meaning instead of only title word overlap.
+5. `block-2-14-posting-policy-presets-discord-controls.md`: Reusable posting policy presets, manager-side Discord control, and recommendation-only tuning guidance.
 
 ## Future Candidate Blocks
 

@@ -221,14 +221,21 @@ export async function getArticlesForTopic(
 }
 
 /**
- * Prunes skipped/indexed articles that are older than the specified days.
- * Keeps posted articles forever.
+ * Prunes only disposable indexing records that are older than the specified days.
+ * Preserves actionable digest, review, coverage, and posted records.
  */
 export async function pruneOldArticles(olderThanDays = 7): Promise<number> {
   const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+  const disposableStatuses = [
+    ARTICLE_STATUSES.INDEXED,
+    ARTICLE_STATUSES.SKIPPED_OLD,
+    ARTICLE_STATUSES.SKIPPED_LOW_SCORE,
+    ARTICLE_STATUSES.SKIPPED_FILTERED,
+    ARTICLE_STATUSES.SKIPPED_INTENT,
+  ];
   const result = await prisma.article.deleteMany({
     where: {
-      status: { not: ARTICLE_STATUSES.POSTED },
+      status: { in: disposableStatuses },
       firstSeenAt: { lt: cutoff },
     },
   });
@@ -569,3 +576,4 @@ export async function markArticlesAsPostedDigest(
     },
   });
 }
+

@@ -269,12 +269,22 @@
     {
       "name": "Daily Hive Toronto",
       "url": "https://dailyhive.com/feed/toronto",
-      "trusted": false
+      "trusted": false,
+      "postingControls": {
+        "cooldownMinutes": 180,
+        "maxImmediatePerHour": 1,
+        "maxImmediatePerDay": 3
+      }
     },
     {
       "name": "Reddit FoodToronto",
       "url": "https://www.reddit.com/r/FoodToronto/.rss",
-      "trusted": true
+      "trusted": true,
+      "postingControls": {
+        "cooldownMinutes": 240,
+        "maxImmediatePerHour": 1,
+        "maxImmediatePerDay": 2
+      }
     },
     {
       "name": "Insauga",
@@ -299,7 +309,12 @@
     {
       "name": "Google News - General Toronto Restaurant News",
       "url": "https://news.google.com/rss/search?q=toronto+(restaurant+OR+eatery+OR+dining)+(opening+OR+closing+OR+new+OR+michelin)&hl=en-CA&gl=CA&ceid=CA:en",
-      "trusted": false
+      "trusted": false,
+      "postingControls": {
+        "cooldownMinutes": 120,
+        "maxImmediatePerHour": 1,
+        "maxImmediatePerDay": 2
+      }
     },
     {
       "name": "Matty Matheson YouTube",

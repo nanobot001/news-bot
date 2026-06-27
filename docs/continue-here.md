@@ -1,5 +1,18 @@
 # Continue Here
 
+## 2026-06-26 (Repo Workflow Guardrail Added)
+
+Current state:
+- This repo regularly hits Windows sandbox friction for `apply_patch`, git mutation, and subprocess-heavy verification commands.
+- Future sessions should use sandboxed reads for exploration, but escalate early for `git`, `npm test`, and PM2 or runtime control work instead of repeatedly retrying blocked commands.
+- `spawn EPERM`, Windows sandbox wrapper refusals, and `safe.directory` warnings should be treated as environment constraints first.
+
+Next step:
+- Continue normal implementation work, but assume verification and commit or push flows will likely need escalation.
+
+Do-not-forget checks:
+- After shell-based fallback edits, re-read touched sections because text replacement can drift more easily than structured patching.
+
 ## 2026-06-25 (Real-Use Noise Feedback Captured)
 
 Current state:
