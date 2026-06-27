@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import { SnowflakeUtil, type Client } from "discord.js";
 import type { AppConfig } from "../config/loadConfig.js";
+import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
 import { fetchFeedItems } from "../ingestion/fetchFeeds.js";
 import { normalizeRssItem } from "../normalization/normalizeRssItem.js";
 import { checkDuplicate } from "../processing/dedupe.js";
@@ -15,6 +16,8 @@ import { ARTICLE_STATUSES, type ArticleStatus, routeToPendingStatus } from "../s
 import { formatArticleEmbed, postArticleToChannel } from "../bot/postEmbed.js";
 import { calculateJaccardSimilarity, findBestStoryMatch } from "../processing/similarity.js";
 import { classifyContentIntent, decideContentRoute } from "../processing/contentRouting.js";
+import type { ContentRoutingResult } from "../processing/contentRouting.js";
+import { buildPostingControlBudget, calculatePostingPriority, evaluatePostingControls, reserveImmediatePostingSlot } from "../processing/postingControls.js";
 import { acquireLock, releaseLock } from "../utils/lock.js";
 import { decodeGoogleNewsUrl } from "../utils/googleNewsResolver.js";
 import { scrapeOgImage } from "../utils/ogImageScraper.js";
@@ -121,6 +124,160 @@ function determineCurationStatus(
  * Runs a single, complete polling run for all topics and sources.
  * Gathers counts and catches errors at the source level.
  */
+type PreparedPollCandidate = {
+  topic: string;
+  source: AppConfig["sources"][string][number];
+  event: NormalizedEvent;
+  scoringResult: ReturnType<typeof scoreArticle>;
+  filteringResult: ReturnType<typeof filterArticle>;
+  routingResult: ContentRoutingResult;
+  routingMetadata: {
+    intent: string;
+    intentConfidence: number;
+    route: string;
+    routeReason: string;
+  };
+  curationBreakdown: string[];
+  priority: number;
+};
+
+async function postImmediateCandidate(input: {
+  client: Client;
+  topic: string;
+  topicConfig: AppConfig["topics"][string];
+  source: AppConfig["sources"][string][number];
+  event: NormalizedEvent;
+  scoringResult: ReturnType<typeof scoreArticle>;
+  routingResult: ContentRoutingResult;
+  routingMetadata: {
+    intent: string;
+    intentConfidence: number;
+    route: string;
+    routeReason: string;
+  };
+}): Promise<{ posted: boolean; finalStatus: ArticleStatus; finalRoute: string; finalReason: string }> {
+  const { client, topic, topicConfig, event, scoringResult, routingResult, routingMetadata } = input;
+  const eventSignals = extractSignals(event);
+  const activeStories = await getActiveStories(topic);
+  const signalThreshold = process.env.SIGNAL_THRESHOLD ? parseFloat(process.env.SIGNAL_THRESHOLD) : 0.3;
+  const similarityThreshold = process.env.SIMILARITY_THRESHOLD ? parseFloat(process.env.SIMILARITY_THRESHOLD) : 0.25;
+
+  if (!event.imageUrl) {
+    try {
+      const scrapedImg = await scrapeOgImage(event.url);
+      if (scrapedImg) {
+        event.imageUrl = scrapedImg;
+      }
+    } catch (err) {
+      console.warn(`[News Poll] Failed to scrape OG image for ${event.url}:`, err);
+    }
+  }
+
+  const matchResult = findBestStoryMatch(
+    event.title,
+    eventSignals,
+    activeStories as any,
+    signalThreshold,
+    similarityThreshold
+  );
+
+  const bestStory = matchResult.story;
+  const bestScore = matchResult.score;
+  const matchReason = matchResult.reason;
+
+  if (bestStory && (bestStory as any).event?.discordThreadId) {
+    const threadId = (bestStory as any).event.discordThreadId as string;
+    const threadChannel = await client.channels.fetch(threadId);
+    if (threadChannel?.isTextBased()) {
+      const formattedEvent = {
+        ...event,
+        title: `[${bestStory.title}] ${event.title}`,
+      };
+      const embed = formatArticleEmbed({
+        event: formattedEvent,
+        score: scoringResult.score,
+        emoji: topicConfig.emoji,
+        intent: routingResult.intent,
+      });
+      const threadMsg = await (threadChannel as any).send({ embeds: [embed] });
+
+      await saveArticle(
+        event,
+        scoringResult.score,
+        new Date(),
+        ARTICLE_STATUSES.RELATED_COVERAGE,
+        `Clustered automatically via ${matchReason} check (Score: ${bestScore.toFixed(2)})`,
+        threadMsg?.id ?? undefined,
+        threadId,
+        bestStory.id,
+        routingMetadata
+      );
+
+      await updateLastActivityAt(bestStory.id, new Date());
+      if ((bestStory as any).event) {
+        await updateEventIndex(client, (bestStory as any).event.id);
+      }
+
+      return {
+        posted: true,
+        finalStatus: ARTICLE_STATUSES.RELATED_COVERAGE,
+        finalRoute: routingResult.route,
+        finalReason: `Clustered automatically via ${matchReason} check (Score: ${bestScore.toFixed(2)})`,
+      };
+    }
+  }
+
+  if (routingResult.route === "thread_only") {
+    return {
+      posted: false,
+      finalStatus: ARTICLE_STATUSES.DIGEST_PENDING,
+      finalRoute: "digest_pending",
+      finalReason: "No related active story thread found for thread-only discussion item",
+    };
+  }
+
+  const embed = formatArticleEmbed({
+    event,
+    score: scoringResult.score,
+    emoji: topicConfig.emoji,
+    intent: routingResult.intent,
+  });
+  const message = await postArticleToChannel(client, topicConfig.channelId, embed);
+  const newStory = await createStory(topic, event.title);
+
+  await saveArticle(
+    event,
+    scoringResult.score,
+    new Date(),
+    ARTICLE_STATUSES.POSTED,
+    undefined,
+    message?.id ?? undefined,
+    message?.channelId ?? undefined,
+    newStory.id,
+    routingMetadata
+  );
+
+  if (eventSignals.length > 0) {
+    await prisma.storySignal.createMany({
+      data: eventSignals.map((sig) => ({
+        storyId: newStory.id,
+        articleId: event.id,
+        articleTopic: topic,
+        type: sig.type,
+        value: sig.value,
+        weight: sig.weight,
+      })),
+    }).catch((err) => console.warn("Failed to save article signals:", err));
+  }
+
+  return {
+    posted: true,
+    finalStatus: ARTICLE_STATUSES.POSTED,
+    finalRoute: routingResult.route,
+    finalReason: "Immediate slot available after posting controls",
+  };
+}
+
 export async function pollNews(
   client: Client,
   config: AppConfig,
@@ -132,477 +289,338 @@ export async function pollNews(
     console.warn("[News Poll] Another polling job is already running. Skipping this execution.");
     return {};
   }
+
   try {
     const counts: Record<string, PollTopicCounts> = {};
     const topicsToPoll = targetTopic ? [targetTopic] : Object.keys(config.topics);
 
-  for (const topic of topicsToPoll) {
-    counts[topic] = {
-      checked: 0,
-      newItems: 0,
-      skipped: 0,
-      posted: 0,
-      eligible: 0,
-    };
+    for (const topic of topicsToPoll) {
+      counts[topic] = {
+        checked: 0,
+        newItems: 0,
+        skipped: 0,
+        posted: 0,
+        eligible: 0,
+      };
 
-    const topicConfig = config.topics[topic];
-    if (!topicConfig || topicConfig.disabled) {
-      continue;
-    }
-    const sources = config.sources[topic] || [];
+      const topicConfig = config.topics[topic];
+      if (!topicConfig || topicConfig.disabled) {
+        continue;
+      }
 
-    for (const source of sources) {
-      try {
-        const result = await fetchFeedItems(source);
-        for (const item of result.items) {
-          counts[topic].checked++;
-          const event = normalizeRssItem({ topic, source, item });
+      const sources = config.sources[topic] || [];
+      const preparedCandidates: PreparedPollCandidate[] = [];
+      const postedArticles = await prisma.article.findMany({
+        where: { topic, status: ARTICLE_STATUSES.POSTED },
+      });
+      const budget = buildPostingControlBudget(postedArticles);
+      const isDryRun = forceDryRun || process.env.DRY_RUN === "true";
 
-          // Pre-filter: If the article publication date is older than DEDUPE_WINDOW_DAYS, ignore it entirely without database hits/writes.
-          if (event.publishedAt) {
-            const pubDate = new Date(event.publishedAt);
-            if (!isNaN(pubDate.getTime())) {
-              const dedupeWindowDays = process.env.DEDUPE_WINDOW_DAYS ? parseInt(process.env.DEDUPE_WINDOW_DAYS, 10) : 7;
-              const maxAgeMs = dedupeWindowDays * 24 * 60 * 60 * 1000;
-              if (Date.now() - pubDate.getTime() > maxAgeMs) {
-                counts[topic].skipped++;
-                continue;
-              }
-            }
-          }
+      for (const source of sources) {
+        try {
+          const result = await fetchFeedItems(source);
+          for (const item of result.items) {
+            counts[topic].checked++;
+            const event = normalizeRssItem({ topic, source, item });
 
-          const sharingTopics = Object.entries(config.topics)
-            .filter(([_, tc]) => tc.channelId === topicConfig.channelId)
-            .map(([t]) => t);
-          const dedupeResult = await checkDuplicate(event, sharingTopics);
-
-          if (dedupeResult.isDuplicate) {
-            counts[topic].skipped++;
-            continue;
-          }
-
-          // Resolve Google News URLs before scoring and persisting
-          if (event.url.startsWith("https://news.google.com")) {
-            try {
-              const decodedUrl = await decodeGoogleNewsUrl(event.url);
-              if (decodedUrl && decodedUrl !== event.url) {
-                event.url = decodedUrl;
-                // Re-run deduplication check on the resolved canonical URL
-                const reCheck = await checkDuplicate(event, sharingTopics);
-                if (reCheck.isDuplicate) {
+            if (event.publishedAt) {
+              const pubDate = new Date(event.publishedAt);
+              if (!isNaN(pubDate.getTime())) {
+                const dedupeWindowDays = process.env.DEDUPE_WINDOW_DAYS ? parseInt(process.env.DEDUPE_WINDOW_DAYS, 10) : 7;
+                const maxAgeMs = dedupeWindowDays * 24 * 60 * 60 * 1000;
+                if (Date.now() - pubDate.getTime() > maxAgeMs) {
                   counts[topic].skipped++;
                   continue;
                 }
               }
-            } catch (err) {
-              console.warn(`[News Poll] Failed to decode Google News URL ${event.url}:`, err);
             }
-          }
 
-          // Deep verification for YouTube videos to find the TRUE publish date.
-          // This prevents YouTube's algorithm from resurfacing ancient videos with today's date.
-          if (event.url && (event.url.includes("youtube.com") || event.url.includes("youtu.be"))) {
-            try {
-              const ytResp = await fetch(event.url, {
-                headers: {
-                  "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                  "accept-language": "en-US,en;q=0.9"
-                },
-                signal: AbortSignal.timeout(8000)
-              });
-              if (ytResp.ok) {
-                const ytHtml = await ytResp.text();
-                const match = ytHtml.match(/<meta itemprop="datePublished" content="([^"]+)"/);
-                if (match && match[1]) {
-                  const truePubDate = new Date(match[1]);
-                  if (!isNaN(truePubDate.getTime())) {
-                    event.publishedAt = truePubDate.toISOString();
-                    const dedupeWindowDays = process.env.DEDUPE_WINDOW_DAYS ? parseInt(process.env.DEDUPE_WINDOW_DAYS, 10) : 7;
-                    const maxAgeMs = dedupeWindowDays * 24 * 60 * 60 * 1000;
-                    if (Date.now() - truePubDate.getTime() > maxAgeMs) {
-                      console.log(`[News Poll] Skipping old YouTube video ${event.url} (true publish date: ${event.publishedAt})`);
-                      counts[topic].skipped++;
-                      continue;
-                    }
-                  }
-                }
-              }
-            } catch (err) {
-              console.warn(`[News Poll] Failed to fetch true YouTube date for ${event.url}`, err);
-            }
-          }
-
-          counts[topic].newItems++;
-          const scoringResult = scoreArticle({
-            event,
-            keywords: topicConfig.keywords,
-            locationKeywords: topicConfig.locationKeywords,
-            blockedTerms: topicConfig.blockedTerms,
-            trustedSource: source.trusted,
-          });
-
-          const intentClassification = classifyContentIntent(event, source);
-          const routingThreshold = topicConfig.intentRouting?.[intentClassification.intent]?.postThreshold ?? topicConfig.postThreshold;
-          const maxAgeHours = process.env.MAX_ARTICLE_AGE_HOURS ? parseInt(process.env.MAX_ARTICLE_AGE_HOURS, 10) : 24;
-          const filteringResult = filterArticle({
-            score: scoringResult.score,
-            threshold: routingThreshold,
-            isDuplicate: false,
-            publishedAt: event.publishedAt,
-            maxAgeHours,
-          });
-          const routingResult = {
-            ...intentClassification,
-            ...decideContentRoute({
-              classification: intentClassification,
-              topicConfig,
-              source,
-              score: scoringResult.score,
-              filterAllowsPost: filteringResult.shouldPost,
-              filterReasons: filteringResult.reasons,
-            }),
-          };
-          const routingMetadata = {
-            intent: routingResult.intent,
-            intentConfidence: routingResult.confidence,
-            route: routingResult.route,
-            routeReason: routingResult.reason,
-          };
-          const curationBreakdown = [
-            ...scoringResult.reasons,
-            ...filteringResult.reasons,
-            `Intent classified as ${routingResult.intent} (${routingResult.confidence.toFixed(2)})`,
-            ...routingResult.reasons.map((reason) => `Routing: ${reason}`),
-            `Selected route ${routingResult.route}: ${routingResult.reason}`,
-          ];
-
-          const isDryRun = forceDryRun || process.env.DRY_RUN === "true";
-          const curationStatus = determineCurationStatus(
-            filteringResult.shouldPost,
-            routingResult.route,
-            scoringResult.reasons,
-            filteringResult.reasons
-          );
-
-          if (!isDryRun) {
-            await saveCurationLog({
-              title: event.title,
-              url: event.url,
-              source: event.sourceName,
-              topic: event.topic,
-              status: curationStatus,
-              score: scoringResult.score,
-              breakdown: curationBreakdown,
-            }).catch((err) => {
-              console.error(`Failed to save curation log:`, err);
-            });
-          }
-
-          if (routingResult.route === "immediate_post" || routingResult.route === "thread_only") {
-            counts[topic].eligible!++;
-            if (isDryRun) {
-              console.log(`[Dry Run] Would route article: "${event.title}" as ${routingResult.route}`);
+            const sharingTopics = Object.entries(config.topics)
+              .filter(([_, tc]) => tc.channelId === topicConfig.channelId)
+              .map(([t]) => t);
+            const dedupeResult = await checkDuplicate(event, sharingTopics);
+            if (dedupeResult.isDuplicate) {
               counts[topic].skipped++;
-            } else {
-              // Scrape the OG image from the resolved URL if no image is present
-              if (!event.imageUrl) {
-                try {
-                  const scrapedImg = await scrapeOgImage(event.url);
-                  if (scrapedImg) {
-                    event.imageUrl = scrapedImg;
+              continue;
+            }
+
+            if (event.url.startsWith("https://news.google.com")) {
+              try {
+                const decodedUrl = await decodeGoogleNewsUrl(event.url);
+                if (decodedUrl && decodedUrl !== event.url) {
+                  event.url = decodedUrl;
+                  const reCheck = await checkDuplicate(event, sharingTopics);
+                  if (reCheck.isDuplicate) {
+                    counts[topic].skipped++;
+                    continue;
                   }
-                } catch (err) {
-                  console.warn(`[News Poll] Failed to scrape OG image for ${event.url}:`, err);
                 }
+              } catch (err) {
+                console.warn(`[News Poll] Failed to decode Google News URL ${event.url}:`, err);
               }
-              // 1. Extract signals and check for matches
-              const eventSignals = extractSignals(event);
-              const activeStories = await getActiveStories(topic);
-              const signalThreshold = process.env.SIGNAL_THRESHOLD ? parseFloat(process.env.SIGNAL_THRESHOLD) : 0.3;
-              const similarityThreshold = process.env.SIMILARITY_THRESHOLD ? parseFloat(process.env.SIMILARITY_THRESHOLD) : 0.25;
+            }
 
-              const matchResult = findBestStoryMatch(
-                event.title,
-                eventSignals,
-                activeStories as any,
-                signalThreshold,
-                similarityThreshold
-              );
-
-              const bestStory = matchResult.story;
-              const bestScore = matchResult.score;
-              const matchReason = matchResult.reason;
-
-              // 2. If similar story found, merge/post into its thread
-              if (bestStory) {
-                // If it's the exact same story from the SAME source (e.g., a title tweak or repost),
-                // skip it completely instead of threading it to avoid redundant spam.
-                let duplicateSameSource = false;
-                for (const article of bestStory.articles) {
-                  if (article.source === event.sourceName) {
-                    const jaccardScore = calculateJaccardSimilarity(event.title, article.title);
-                    if (jaccardScore >= 0.65) {
-                      duplicateSameSource = true;
-                      break;
+            if (event.url && (event.url.includes("youtube.com") || event.url.includes("youtu.be"))) {
+              try {
+                const ytResp = await fetch(event.url, {
+                  headers: {
+                    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "accept-language": "en-US,en;q=0.9",
+                  },
+                  signal: AbortSignal.timeout(8000),
+                });
+                if (ytResp.ok) {
+                  const ytHtml = await ytResp.text();
+                  const match = ytHtml.match(/<meta itemprop="datePublished" content="([^"]+)"/);
+                  if (match && match[1]) {
+                    const truePubDate = new Date(match[1]);
+                    if (!isNaN(truePubDate.getTime())) {
+                      event.publishedAt = truePubDate.toISOString();
+                      const dedupeWindowDays = process.env.DEDUPE_WINDOW_DAYS ? parseInt(process.env.DEDUPE_WINDOW_DAYS, 10) : 7;
+                      const maxAgeMs = dedupeWindowDays * 24 * 60 * 60 * 1000;
+                      if (Date.now() - truePubDate.getTime() > maxAgeMs) {
+                        console.log(`[News Poll] Skipping old YouTube video ${event.url} (true publish date: ${event.publishedAt})`);
+                        counts[topic].skipped++;
+                        continue;
+                      }
                     }
                   }
                 }
-
-                if (duplicateSameSource) {
-                  console.log(`[News Poll] Dropping duplicate coverage from SAME source: "${event.title}"`);
-                  counts[topic].skipped++;
-                  continue;
-                }
-
-                let threadId = (bestStory as any).event?.discordThreadId;
-
-                // 2a. Lazy create thread on parent message if it doesn't exist
-                if (!threadId && (bestStory as any).event) {
-                  const firstArticle = bestStory.articles[0];
-                  if (firstArticle && firstArticle.discordChannelId && firstArticle.discordMessageId) {
-                    try {
-                      const anchorChannel = await client.channels.fetch(firstArticle.discordChannelId);
-                      const threadContext = await createCoverageIndexThread(
-                        client,
-                        firstArticle.discordChannelId,
-                        (bestStory as any).event.title
-                      );
-                      const thread = threadContext.thread;
-                      threadId = threadContext.threadId;
-
-                      if (anchorChannel?.isTextBased()) {
-
-                        // 3. Delete the first article's original standalone message from the parent channel
-                        const oldMsg = await anchorChannel.messages.fetch(firstArticle.discordMessageId).catch(() => null);
-                        if (oldMsg) {
-                          await oldMsg.delete().catch((err: any) => console.warn("Failed to delete first article message:", err));
-                        }
-
-                        // 4. Repost the first article inside the newly created thread
-                        const firstFormatted = {
-                          id: firstArticle.id,
-                          type: "news.article" as const,
-                          title: `[${bestStory.title}] ${firstArticle.title}`,
-                          url: firstArticle.url ?? "",
-                          sourceName: firstArticle.source,
-                          topic: firstArticle.topic,
-                          publishedAt: firstArticle.publishedAt?.toISOString() || undefined,
-                        };
-                        
-                        const firstEmbed = formatArticleEmbed({
-                          event: firstFormatted,
-                          score: firstArticle.score ?? 0,
-                          emoji: topicConfig.emoji,
-                          intent: firstArticle.intent ?? undefined,
-                        });
-                        const firstRepostMsg = await (thread as any).send({ embeds: [firstEmbed] });
-
-                        // 5. Update the first article reference in the database to point to the thread message
-                        await prisma.article.update({
-                          where: { id_topic: { id: firstArticle.id, topic: firstArticle.topic } },
-                          data: {
-                            discordChannelId: threadId,
-                            discordMessageId: firstRepostMsg.id,
-                            status: "RELATED_COVERAGE",
-                            statusReason: `Moved to event thread "${(bestStory as any).event.title}" on lazy thread creation`
-                          }
-                        });
-
-                        await setEventThreadAndIndex((bestStory as any).event.id, threadId, threadContext.indexMessageId);
-
-                        // Ping managers in the new thread
-                        const mentions = getManagerMentions();
-                        if (mentions) {
-                          await (thread as any).send({
-                            content: `🧵 New event thread created. Alert: ${mentions}`
-                          });
-                        }
-
-                        // Auto-add configured managers to the thread so they join automatically
-                        const managerUserIdsStr = process.env.BOT_MANAGER_USER_IDS || "";
-                        const managerUserIds = managerUserIdsStr.split(",").map(id => id.trim()).filter(id => id.length > 0);
-                        for (const uId of managerUserIds) {
-                          try {
-                            await thread.members.add(uId);
-                          } catch (memberErr) {
-                            console.error(`Failed to auto-add user ${uId} to thread:`, memberErr);
-                          }
-                        }
-                      }
-                    } catch (threadErr) {
-                      console.error("Failed to lazy create thread on anchor message:", threadErr);
-                    }
-                  }
-                }
-
-                // 2b. Post child embed inside thread
-                if (threadId) {
-                  try {
-                    const threadChannel = await client.channels.fetch(threadId);
-                    if (threadChannel?.isTextBased()) {
-                      // Prefix the article title with the story title for context
-                      const formattedEvent = {
-                        ...event,
-                        title: `[${bestStory.title}] ${event.title}`
-                      };
-                      const embed = formatArticleEmbed({ event: formattedEvent, score: scoringResult.score, emoji: topicConfig.emoji, intent: routingResult.intent });
-                      const threadMsg = await (threadChannel as any).send({ embeds: [embed] });
-
-                      // Save as RELATED_COVERAGE child
-                      await saveArticle(
-                        event,
-                        scoringResult.score,
-                        new Date(),
-                        ARTICLE_STATUSES.RELATED_COVERAGE,
-                        `Clustered automatically via ${matchReason} check (Score: ${bestScore.toFixed(2)})`,
-                        threadMsg?.id ?? undefined,
-                        threadId ?? undefined,
-                        bestStory.id,
-                        routingMetadata
-                      );
-
-                      // Save signals for the article and link to story
-                      if (eventSignals.length > 0) {
-                        await prisma.storySignal.createMany({
-                          data: eventSignals.map(sig => ({
-                            storyId: bestStory.id,
-                            articleId: event.id,
-                            articleTopic: topic,
-                            type: sig.type,
-                            value: sig.value,
-                            weight: sig.weight
-                          }))
-                        }).catch(err => console.warn("Failed to save article signals:", err));
-                      }
-
-                      // Update story's lastActivityAt
-                      await updateLastActivityAt(bestStory.id, new Date());
-                      
-                      // Update the Event Pinned Index
-                      if ((bestStory as any).event) {
-                        await updateEventIndex(client, (bestStory as any).event.id);
-                      }
-                      
-                      counts[topic].posted++;
-                      continue;
-                    }
-                  } catch (postErr) {
-                    console.error("Failed to post child article inside thread, falling back to standalone:", postErr);
-                  }
-                }
+              } catch (err) {
+                console.warn(`[News Poll] Failed to fetch true YouTube date for ${event.url}`, err);
               }
+            }
 
-              if (routingResult.route === "thread_only") {
+            counts[topic].newItems++;
+            const scoringResult = scoreArticle({
+              event,
+              keywords: topicConfig.keywords,
+              locationKeywords: topicConfig.locationKeywords,
+              blockedTerms: topicConfig.blockedTerms,
+              trustedSource: source.trusted,
+            });
+
+            const intentClassification = classifyContentIntent(event, source);
+            const routingThreshold = topicConfig.intentRouting?.[intentClassification.intent]?.postThreshold ?? topicConfig.postThreshold;
+            const maxAgeHours = process.env.MAX_ARTICLE_AGE_HOURS ? parseInt(process.env.MAX_ARTICLE_AGE_HOURS, 10) : 24;
+            const filteringResult = filterArticle({
+              score: scoringResult.score,
+              threshold: routingThreshold,
+              isDuplicate: false,
+              publishedAt: event.publishedAt,
+              maxAgeHours,
+            });
+
+            const routingResult: ContentRoutingResult = {
+              ...intentClassification,
+              ...decideContentRoute({
+                classification: intentClassification,
+                topicConfig,
+                source,
+                score: scoringResult.score,
+                filterAllowsPost: filteringResult.shouldPost,
+                filterReasons: filteringResult.reasons,
+              }),
+            };
+
+            const routingMetadata = {
+              intent: routingResult.intent,
+              intentConfidence: routingResult.confidence,
+              route: routingResult.route,
+              routeReason: routingResult.reason,
+            };
+
+            const curationBreakdown = [
+              ...scoringResult.reasons,
+              ...filteringResult.reasons,
+              `Intent classified as ${routingResult.intent} (${routingResult.confidence.toFixed(2)})`,
+              ...routingResult.reasons.map((reason) => `Routing: ${reason}`),
+              `Selected route ${routingResult.route}: ${routingResult.reason}`,
+            ];
+
+            if (routingResult.route === "skip") {
+              if (!isDryRun) {
                 await saveArticle(
                   event,
                   scoringResult.score,
                   null,
-                  ARTICLE_STATUSES.DIGEST_PENDING,
-                  "No related active story thread found for thread-only discussion item",
+                  classifySkipStatus(filteringResult.reasons),
+                  filteringResult.reasons.join("; "),
                   undefined,
                   undefined,
                   null,
-                  {
-                    ...routingMetadata,
-                    route: "digest_pending",
-                    routeReason: "No related active story thread found for thread-only discussion item",
-                  }
+                  routingMetadata
                 );
-                counts[topic].skipped++;
-                continue;
+                await saveCurationLog({
+                  title: event.title,
+                  url: event.url,
+                  source: event.sourceName,
+                  topic: event.topic,
+                  status: "SKIPPED",
+                  score: scoringResult.score,
+                  breakdown: curationBreakdown,
+                }).catch((err) => console.error("Failed to save curation log:", err));
               }
-
-              // 3. Fallback or standard post: post as standalone article
-              const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji, intent: routingResult.intent });
-              const message = await postArticleToChannel(client, topicConfig.channelId, embed);
-              
-              // Create a new story
-              const newStory = await createStory(topic, event.title);
-              
-              await saveArticle(
-                event,
-                scoringResult.score,
-                new Date(),
-                ARTICLE_STATUSES.POSTED,
-                undefined,
-                message?.id ?? undefined,
-                message?.channelId ?? undefined,
-                newStory.id,
-                routingMetadata
-              );
-
-              // Save signals for the article and link to story
-              if (eventSignals.length > 0) {
-                await prisma.storySignal.createMany({
-                  data: eventSignals.map(sig => ({
-                    storyId: newStory.id,
-                    articleId: event.id,
-                    articleTopic: topic,
-                    type: sig.type,
-                    value: sig.value,
-                    weight: sig.weight
-                  }))
-                }).catch(err => console.warn("Failed to save article signals:", err));
-              }
-
-              counts[topic].posted++;
+              counts[topic].skipped++;
+              continue;
             }
-          } else if (routingResult.route === "digest_pending" || routingResult.route === "review_pending" || (routingResult.route === "skip" && filteringResult.shouldPost)) {
-            if (!isDryRun) {
-              await saveArticle(
-                event,
-                scoringResult.score,
-                null,
-                routeToPendingStatus(routingResult.route, filteringResult.reasons),
-                routingResult.reason,
-                undefined,
-                undefined,
-                null,
-                routingMetadata
-              );
-            } else {
-              console.log(`[Dry Run] Would save article with route ${routingResult.route}: "${event.title}"`);
-            }
-            counts[topic].skipped++;
+
+            preparedCandidates.push({
+              topic,
+              source,
+              event,
+              scoringResult,
+              filteringResult,
+              routingResult,
+              routingMetadata,
+              curationBreakdown,
+              priority: calculatePostingPriority({
+                score: scoringResult.score,
+                source,
+                routingResult,
+                title: event.title,
+                summary: event.summary,
+                publishedAt: event.publishedAt,
+                topic,
+              }),
+            });
+            counts[topic].eligible!++;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (errorsList) {
+            errorsList.push({ topic, source: source.name, message });
           } else {
-            if (!isDryRun) {
-              await saveArticle(
-                event,
-                scoringResult.score,
-                null,
-                classifySkipStatus(filteringResult.reasons),
-                filteringResult.reasons.join("; "),
-                undefined,
-                undefined,
-                null,
-                routingMetadata
-              );
-            } else {
-              console.log(`[Dry Run] Would save article (unposted) with score: ${scoringResult.score}: "${event.title}"`);
-            }
-            counts[topic].skipped++;
+            console.error(`Error processing source "${source.name}" for topic "${topic}": ${message}`);
           }
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (errorsList) {
-          errorsList.push({ topic, source: source.name, message });
+      }
+
+      preparedCandidates.sort((left, right) => {
+        if (right.priority !== left.priority) return right.priority - left.priority;
+        return left.event.publishedAt && right.event.publishedAt
+          ? new Date(right.event.publishedAt).getTime() - new Date(left.event.publishedAt).getTime()
+          : 0;
+      });
+
+      for (const candidate of preparedCandidates) {
+        const controlDecision = evaluatePostingControls({
+          topic,
+          source: candidate.source,
+          topicConfig,
+          routingResult: candidate.routingResult,
+          score: candidate.scoringResult.score,
+          title: candidate.event.title,
+          summary: candidate.event.summary,
+          publishedAt: candidate.event.publishedAt,
+          budget,
+        });
+
+        const finalRoute = controlDecision.route;
+        const finalStatus = controlDecision.status;
+        const finalReason = controlDecision.reason;
+        const finalRoutingMetadata = {
+          ...candidate.routingMetadata,
+          route: finalRoute,
+          routeReason: finalReason,
+        };
+        const finalBreakdown = [
+          ...candidate.curationBreakdown,
+          ...controlDecision.reasons.map((reason) => `Posting controls: ${reason}`),
+          `Final route ${finalRoute}: ${finalReason}`,
+        ];
+
+        if (isDryRun) {
+          console.log(`[Dry Run] Would evaluate article: "${candidate.event.title}" -> ${finalStatus} / ${finalRoute}`);
+          counts[topic].skipped++;
+          continue;
+        }
+
+        if (finalStatus !== "POSTED") {
+          await saveArticle(
+            candidate.event,
+            candidate.scoringResult.score,
+            null,
+            routeToPendingStatus(finalRoute, candidate.filteringResult.reasons),
+            finalReason,
+            undefined,
+            undefined,
+            null,
+            finalRoutingMetadata
+          );
+          await saveCurationLog({
+            title: candidate.event.title,
+            url: candidate.event.url,
+            source: candidate.event.sourceName,
+            topic: candidate.event.topic,
+            status: finalStatus,
+            score: candidate.scoringResult.score,
+            breakdown: finalBreakdown,
+          }).catch((err) => console.error("Failed to save curation log:", err));
+          counts[topic].skipped++;
+          continue;
+        }
+
+        const outcome = await postImmediateCandidate({
+          client,
+          topic,
+          topicConfig,
+          source: candidate.source,
+          event: candidate.event,
+          scoringResult: candidate.scoringResult,
+          routingResult: candidate.routingResult,
+          routingMetadata: finalRoutingMetadata,
+        });
+
+        await saveCurationLog({
+          title: candidate.event.title,
+          url: candidate.event.url,
+          source: candidate.event.sourceName,
+          topic: candidate.event.topic,
+          status: outcome.finalStatus,
+          score: candidate.scoringResult.score,
+          breakdown: finalBreakdown,
+        }).catch((err) => console.error("Failed to save curation log:", err));
+
+        if (outcome.posted) {
+          reserveImmediatePostingSlot(budget, candidate.source, candidate.routingResult.intent, new Date());
+          counts[topic].posted++;
         } else {
-          console.error(`Error processing source "${source.name}" for topic "${topic}": ${message}`);
+          if (outcome.finalStatus === ARTICLE_STATUSES.DIGEST_PENDING) {
+            await saveArticle(
+              candidate.event,
+              candidate.scoringResult.score,
+              null,
+              ARTICLE_STATUSES.DIGEST_PENDING,
+              outcome.finalReason,
+              undefined,
+              undefined,
+              null,
+              finalRoutingMetadata
+            );
+          } else if (outcome.finalStatus === ARTICLE_STATUSES.SKIPPED_FILTERED) {
+            await saveArticle(
+              candidate.event,
+              candidate.scoringResult.score,
+              null,
+              ARTICLE_STATUSES.SKIPPED_FILTERED,
+              outcome.finalReason,
+              undefined,
+              undefined,
+              null,
+              finalRoutingMetadata
+            );
+          }
+          counts[topic].skipped++;
         }
       }
     }
-  }
 
     return counts;
   } finally {
     releaseLock();
   }
 }
-
-/**
- * Runs a poll run once, then logs the results using the log-on-demand strategy.
- */
 export async function runSinglePoll(client: Client, config: AppConfig): Promise<Record<string, PollTopicCounts>> {
   const startTime = new Date();
   const errors: PollError[] = [];
@@ -870,3 +888,8 @@ function getManagerMentions(): string {
 
   return mentions.length > 0 ? mentions.join(" ") : "";
 }
+
+
+
+
+

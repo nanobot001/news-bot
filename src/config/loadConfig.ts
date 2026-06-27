@@ -31,6 +31,19 @@ export type IntentRoutingPolicy = {
   digestSchedule?: string;
 };
 
+export type PostingPolicy = {
+  cooldownMinutes?: number;
+  maxImmediatePerHour?: number;
+  maxImmediatePerDay?: number;
+};
+
+export type TopicPostingControls = PostingPolicy & {
+  digestFirstIntents?: ContentIntent[];
+  intentCaps?: Partial<Record<ContentIntent, PostingPolicy>>;
+};
+
+export type SourcePostingControls = PostingPolicy;
+
 export type TopicConfig = {
   channelId: string;
   keywords: string[];
@@ -40,6 +53,7 @@ export type TopicConfig = {
   emoji?: string;
   disabled?: boolean;
   intentRouting?: Partial<Record<ContentIntent, IntentRoutingPolicy>>;
+  postingControls?: TopicPostingControls;
 };
 
 export type SourceConfig = {
@@ -49,6 +63,7 @@ export type SourceConfig = {
   intentDefault?: ContentIntent;
   tier?: number;
   routeHint?: ContentRoute;
+  postingControls?: SourcePostingControls;
 };
 
 export type AppConfig = {
@@ -148,6 +163,67 @@ function validateIntentRouting(value: unknown, label: string): Partial<Record<Co
   return policies;
 }
 
+function validatePostingPolicy(value: unknown, label: string): PostingPolicy {
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+
+  if (value.cooldownMinutes !== undefined && typeof value.cooldownMinutes !== 'number') {
+    throw new Error(`${label}.cooldownMinutes must be a number`);
+  }
+
+  if (value.maxImmediatePerHour !== undefined && typeof value.maxImmediatePerHour !== 'number') {
+    throw new Error(`${label}.maxImmediatePerHour must be a number`);
+  }
+
+  if (value.maxImmediatePerDay !== undefined && typeof value.maxImmediatePerDay !== 'number') {
+    throw new Error(`${label}.maxImmediatePerDay must be a number`);
+  }
+
+  return {
+    cooldownMinutes: value.cooldownMinutes as number | undefined,
+    maxImmediatePerHour: value.maxImmediatePerHour as number | undefined,
+    maxImmediatePerDay: value.maxImmediatePerDay as number | undefined,
+  };
+}
+
+function validatePostingControls(value: unknown, label: string): TopicPostingControls {
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+
+  const controls = validatePostingPolicy(value, label);
+  const postingControls: TopicPostingControls = { ...controls };
+
+  if (value.digestFirstIntents !== undefined) {
+    postingControls.digestFirstIntents = validateContentIntentArray(value.digestFirstIntents, `${label}.digestFirstIntents`);
+  }
+
+  if (value.intentCaps !== undefined) {
+    if (!isRecord(value.intentCaps)) {
+      throw new Error(`${label}.intentCaps must be an object keyed by content intent`);
+    }
+
+    const intentCaps: Partial<Record<ContentIntent, PostingPolicy>> = {};
+    for (const [intent, policy] of Object.entries(value.intentCaps)) {
+      if (!isContentIntent(intent)) {
+        throw new Error(`${label}.intentCaps.${intent} must be a supported content intent`);
+      }
+      intentCaps[intent] = validatePostingPolicy(policy, `${label}.intentCaps.${intent}`);
+    }
+    postingControls.intentCaps = intentCaps;
+  }
+
+  return postingControls;
+}
+
+function validateContentIntentArray(value: unknown, label: string): ContentIntent[] {
+  if (!Array.isArray(value) || value.some((item) => !isContentIntent(item))) {
+    throw new Error(`${label} must be an array of supported content intents`);
+  }
+
+  return value;
+}
 function validateTopics(value: unknown): Record<string, TopicConfig> {
   if (!isRecord(value)) {
     throw new Error("topics config must be an object keyed by topic name");
@@ -186,6 +262,9 @@ function validateTopics(value: unknown): Record<string, TopicConfig> {
       disabled: topic.disabled as boolean | undefined,
       intentRouting: topic.intentRouting !== undefined
         ? validateIntentRouting(topic.intentRouting, `topics.${topicName}.intentRouting`)
+        : undefined,
+      postingControls: topic.postingControls !== undefined
+        ? validatePostingControls(topic.postingControls, `topics.${topicName}.postingControls`)
         : undefined,
     };
   }
@@ -240,6 +319,10 @@ function validateSources(value: unknown, topics: Record<string, TopicConfig>): R
         throw new Error(`${label}.routeHint must be a supported content route`);
       }
 
+      const postingControls = source.postingControls !== undefined
+        ? validatePostingPolicy(source.postingControls, `${label}.postingControls`)
+        : undefined;
+
       return {
         name: source.name,
         url: source.url,
@@ -247,6 +330,7 @@ function validateSources(value: unknown, topics: Record<string, TopicConfig>): R
         intentDefault: source.intentDefault as ContentIntent | undefined,
         tier: source.tier as number | undefined,
         routeHint: source.routeHint as ContentRoute | undefined,
+        postingControls,
       };
     });
   }
@@ -292,5 +376,6 @@ export async function saveTopicsConfig(topics: Record<string, TopicConfig>): Pro
 export async function saveSourcesConfig(sources: Record<string, SourceConfig[]>): Promise<void> {
   await writeJsonFileAtomic("src/config/sources.json", sources);
 }
+
 
 

@@ -534,6 +534,31 @@
         "digestSchedule": "0 21 * * *"
       }
     },
-    "disabled": false
+    "disabled": false,
+    "postingControls": {
+      "cooldownMinutes": 90,
+      "maxImmediatePerHour": 3,
+      "maxImmediatePerDay": 8,
+      "digestFirstIntents": [
+        "aggregate",
+        "discussion",
+        "review",
+        "guide",
+        "opinion",
+        "reaction"
+      ],
+      "intentCaps": {
+        "news": {
+          "cooldownMinutes": 30,
+          "maxImmediatePerHour": 2,
+          "maxImmediatePerDay": 4
+        },
+        "official": {
+          "cooldownMinutes": 30,
+          "maxImmediatePerHour": 2,
+          "maxImmediatePerDay": 4
+        }
+      }
+    }
   }
 }

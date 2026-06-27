@@ -1,8 +1,8 @@
 # Block 2-8: Intent-Based Digests
 
-> Status: Planned.
-> Result: Not implemented.
-> Notes: Builds on Block 2-6 so non-immediate items such as discussion, review, guide, opinion, reaction, and aggregate coverage have useful scheduled lanes instead of flooding live channels.
+> Status: Implemented.
+> Result: Implemented.
+> Notes: Built on Block 2-6 so non-immediate items such as discussion, review, guide, opinion, reaction, and aggregate coverage have useful scheduled lanes instead of flooding live channels.
 
 ## Goal
 

@@ -14,6 +14,7 @@ import {
   type ModalSubmitInteraction
 } from "discord.js";
 import { type AppConfig, type IntentRoutingPolicy, reloadAppConfig, saveTopicsConfig, saveSourcesConfig } from "../config/loadConfig.js";
+import { buildPostingControlBudget, calculatePostingPriority, evaluatePostingControls, formatPostingControlsSummary, reserveImmediatePostingSlot } from "../processing/postingControls.js";
 import { getArticlesForTopic, getFavorites, deleteFavoriteById, getCurationLogs, saveArticle } from "../storage/articleRepo.js";
 import { pollNews, classifySkipStatus } from "../jobs/pollNews.js";
 import { startDigestSchedulers, publishDigestForLane } from "../jobs/digestPublisher.js";
@@ -22,6 +23,8 @@ import { formatArticleStatus, ARTICLE_STATUSES } from "../storage/articleStatus.
 import { isBotManager } from "./auth.js";
 import { scoreArticle } from "../processing/scoreArticle.js";
 import { filterArticle } from "../processing/filterArticle.js";
+import { classifyContentIntent, decideContentRoute } from "../processing/contentRouting.js";
+import type { ContentRoutingResult } from "../processing/contentRouting.js";
 import { formatArticleEmbed, postArticleToChannel } from "./postEmbed.js";
 import type { NormalizedEvent } from "../normalization/normalizedEvent.js";
 import { cleanThreadTitle } from "../processing/similarity.js";
@@ -197,7 +200,7 @@ export const refreshCommand = new SlashCommandBuilder()
   )
   .addIntegerOption(option =>
     option.setName("hours")
-      .setDescription("Re-score and post unposted articles from the last N hours (optional)")
+      .setDescription("Re-score and preview unposted articles from the last N hours (optional)")
       .setRequired(false)
   );
 
@@ -305,6 +308,11 @@ export const auditCommand = new SlashCommandBuilder()
       .setRequired(false)
       .addChoices(
         { name: "POSTED", value: "POSTED" },
+        { name: "DIGEST_PENDING", value: "DIGEST_PENDING" },
+        { name: "REVIEW_PENDING", value: "REVIEW_PENDING" },
+        { name: "POSTED_DIGEST", value: "POSTED_DIGEST" },
+        { name: "RELATED_COVERAGE", value: "RELATED_COVERAGE" },
+        { name: "SKIPPED_INTENT", value: "SKIPPED_INTENT" },
         { name: "SKIPPED_THRESHOLD", value: "SKIPPED_THRESHOLD" },
         { name: "SKIPPED_BLOCKED", value: "SKIPPED_BLOCKED" },
         { name: "DEFERRED_COOLDOWN", value: "DEFERRED_COOLDOWN" },
@@ -592,10 +600,13 @@ export async function handleTestfeedCommand(
     const numFeeds = (appConfig.sources[topic] || []).length;
 
     let responseText = `**Diagnostic Test Run for Topic: "${topic}"**\n`;
+    responseText += `- Posting controls: ${formatPostingControlsSummary(appConfig.topics[topic])}\n`;
     responseText += `- Feeds checked: ${numFeeds}\n`;
     responseText += `- Items found in feed: ${topicCounts.checked}\n`;
     responseText += `- New items (not in database): ${topicCounts.newItems}\n`;
-    responseText += `- Posts eligible (above threshold): ${topicCounts.eligible ?? 0}\n`;
+    responseText += `- Immediate candidates: ${topicCounts.eligible ?? 0}\n`;
+    responseText += `- Posted immediately: ${topicCounts.posted}\n`;
+    responseText += `- Deferred or skipped: ${topicCounts.skipped}\n`;
 
     if (errorsList.length > 0) {
       responseText += `\n**Errors encountered during check:**\n`;
@@ -792,7 +803,7 @@ export async function handleRefreshCommand(
     await interaction.deferReply({ ephemeral: true });
 
     if (hours !== null && topic) {
-      // Re-score database-driven refresh
+      // Preview-only historical rescore that uses the same posting controls without posting to Discord.
       const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
       const articles = await prisma.article.findMany({
         where: {
@@ -801,12 +812,26 @@ export async function handleRefreshCommand(
         }
       });
 
+      const topicConfig = appConfig.topics[topic];
+      const sources = appConfig.sources[topic] || [];
+      const postedArticles = await prisma.article.findMany({
+        where: { topic, status: ARTICLE_STATUSES.POSTED }
+      });
+      const budget = buildPostingControlBudget(postedArticles);
+
+      type PreviewCandidate = {
+        article: typeof articles[number];
+        event: NormalizedEvent;
+        sourceConfig: (typeof sources)[number] | undefined;
+        scoringResult: ReturnType<typeof scoreArticle>;
+        routingResult: ContentRoutingResult;
+        priority: number;
+      };
+
+      const candidates: PreviewCandidate[] = [];
       let checked = 0;
       let alreadyPosted = 0;
-      let stillSkipped = 0;
-      let postedNow = 0;
-
-      const topicConfig = appConfig.topics[topic];
+      let skipped = 0;
 
       for (const article of articles) {
         checked++;
@@ -815,7 +840,6 @@ export async function handleRefreshCommand(
           continue;
         }
 
-        // Reconstruct event
         let raw: any = null;
         let summary: string | undefined;
         if (article.rawJson) {
@@ -837,10 +861,8 @@ export async function handleRefreshCommand(
           raw
         };
 
-        const sources = appConfig.sources[topic] || [];
-        const sourceConfig = sources.find(s => s.name.toLowerCase() === article.source.toLowerCase());
+        const sourceConfig = sources.find((s) => s.name.toLowerCase() === article.source.toLowerCase());
         const trustedSource = sourceConfig ? sourceConfig.trusted : false;
-
         const scoringResult = scoreArticle({
           event,
           keywords: topicConfig.keywords,
@@ -849,42 +871,84 @@ export async function handleRefreshCommand(
           trustedSource
         });
 
+        const intentClassification = classifyContentIntent(event, sourceConfig ?? { name: article.source, url: "", trusted: trustedSource });
+        const routingThreshold = topicConfig.intentRouting?.[intentClassification.intent]?.postThreshold ?? topicConfig.postThreshold;
         const filteringResult = filterArticle({
           score: scoringResult.score,
-          threshold: topicConfig.postThreshold,
-          isDuplicate: false
+          threshold: routingThreshold,
+          isDuplicate: false,
+          publishedAt: event.publishedAt,
+          maxAgeHours: hours
         });
 
-        if (filteringResult.shouldPost) {
-          postedNow++;
-          const embed = formatArticleEmbed({ event, score: scoringResult.score, emoji: topicConfig.emoji });
-          const message = await postArticleToChannel(client, topicConfig.channelId, embed);
-          await saveArticle(
-            event,
-            scoringResult.score,
-            new Date(),
-            "POSTED",
-            undefined,
-            message?.id,
-            message?.channelId
-          );
+        if (!filteringResult.shouldPost) {
+          skipped++;
+          continue;
+        }
+
+        const routingResult = {
+          ...intentClassification,
+          ...decideContentRoute({
+            classification: intentClassification,
+            topicConfig,
+            source: sourceConfig ?? { name: article.source, url: "", trusted: trustedSource },
+            score: scoringResult.score,
+            filterAllowsPost: filteringResult.shouldPost,
+            filterReasons: filteringResult.reasons,
+          }),
+        };
+
+        candidates.push({
+          article,
+          event,
+          sourceConfig,
+          scoringResult,
+          routingResult,
+          priority: calculatePostingPriority({
+            score: scoringResult.score,
+            source: sourceConfig ?? { name: article.source, url: "", trusted: trustedSource },
+            routingResult,
+            title: event.title,
+            summary: event.summary,
+            publishedAt: event.publishedAt,
+            topic,
+          }),
+        });
+      }
+
+      candidates.sort((left, right) => right.priority - left.priority);
+      let previewPosted = 0;
+      let previewDigest = 0;
+
+      for (const candidate of candidates) {
+        const source = candidate.sourceConfig ?? { name: candidate.article.source, url: "", trusted: false };
+        const controlDecision = evaluatePostingControls({
+          topic,
+          source,
+          topicConfig,
+          routingResult: candidate.routingResult,
+          score: candidate.scoringResult.score,
+          title: candidate.event.title,
+          summary: candidate.event.summary,
+          publishedAt: candidate.event.publishedAt,
+          budget,
+        });
+
+        if (controlDecision.status === "POSTED") {
+          previewPosted++;
+          reserveImmediatePostingSlot(budget, source, candidate.routingResult.intent, new Date());
         } else {
-          stillSkipped++;
-          await saveArticle(
-            event,
-            scoringResult.score,
-            null,
-            classifySkipStatus(filteringResult.reasons),
-            filteringResult.reasons.join("; ")
-          );
+          previewDigest++;
         }
       }
 
-      const responseText = `**Historical Rescore Complete (Topic: ${topic}, Window: ${hours}h)**\n\n` +
-        `- **Articles Checked:** ${checked}\n` +
-        `- **Already Posted:** ${alreadyPosted}\n` +
-        `- **Newly Posted:** ${postedNow}\n` +
-        `- **Still Skipped:** ${stillSkipped}\n`;
+      let responseText = `**Historical Rescore Preview (Topic: ${topic}, Window: ${hours}h)**\n\n`;
+      responseText += `- Posting controls: ${formatPostingControlsSummary(topicConfig)}\n`;
+      responseText += `- Articles Checked: ${checked}\n`;
+      responseText += `- Already Posted: ${alreadyPosted}\n`;
+      responseText += `- Would Post Now: ${previewPosted}\n`;
+      responseText += `- Would Route To Digest/Review: ${previewDigest}\n`;
+      responseText += `- Still Skipped By Filter: ${skipped}\n`;
 
       await interaction.editReply({ content: responseText });
     } else {
@@ -1091,6 +1155,7 @@ export async function handleTopicsCommand(
       const topicSources = appConfig.sources[topic] || [];
       responseText += `  * Sources (${topicSources.length}) by intent: ${getSourceIntentBreakdown(topicSources)}\n`;
       responseText += `  * Intent routing: ${formatIntentPolicies(settings.intentRouting)}\n`;
+      responseText += `  * Posting controls: ${formatPostingControlsSummary(settings)}\n`;
 
       const maxKeywordsToShow = 10;
       let keywordsStr = settings.keywords.slice(0, maxKeywordsToShow).map(k => `\`${k}\``).join(", ");
@@ -3051,6 +3116,14 @@ export async function handleRemoveFromThreadCommand(
     });
   }
 }
+
+
+
+
+
+
+
+
 
 
 
