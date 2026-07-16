@@ -515,7 +515,7 @@ test("Topic Keyword Management and Refresh Lookback Suite", async (t) => {
     assert.match(replyContentTooLarge, /window cannot exceed 72 hours/);
   });
 
-  await t.test("refresh command - rescores, posts and skips historical articles", async () => {
+  await t.test("refresh command - previews historical rescore outcomes without posting", async () => {
     // Ensure database clean
     await prisma.article.deleteMany({});
 
@@ -570,7 +570,7 @@ test("Topic Keyword Management and Refresh Lookback Suite", async (t) => {
       }
     };
 
-    // Mock discord client to verify channel send is triggered
+    // Mock discord client to verify preview mode does not send
     let postTriggered = false;
     let postEmbed: any = null;
     const mockChannel = {
@@ -609,22 +609,23 @@ test("Topic Keyword Management and Refresh Lookback Suite", async (t) => {
     // Verify stats in message
     assert.match(editContent, /Articles Checked.*\b3/);
     assert.match(editContent, /Already Posted.*\b1/);
-    assert.match(editContent, /Newly Posted.*\b1/);
-    assert.match(editContent, /Still Skipped.*\b1/);
+    assert.match(editContent, /Would Post Now.*\b1/);
+    assert.match(editContent, /Would Route To Digest\/Review.*\b0/);
+    assert.match(editContent, /Still Skipped By Filter.*\b1/);
 
-    // Verify post operation
-    assert.ok(postTriggered);
-    assert.equal(postEmbed.data.title, "New AI tool released in Toronto");
+    // Verify preview does not post or mutate article state
+    assert.equal(postTriggered, false);
+    assert.equal(postEmbed, null);
 
     // Verify DB states after rescoring
     const dbArticle1 = await prisma.article.findUnique({
       where: { id_topic: { id: "hist-1", topic: "tech" } }
     });
     assert.ok(dbArticle1);
-    assert.equal(dbArticle1.status, "POSTED");
-    assert.ok(dbArticle1.postedAt !== null);
-    assert.equal(dbArticle1.discordMessageId, "msg-12345");
-    assert.equal(dbArticle1.discordChannelId, "22222222");
+    assert.equal(dbArticle1.status, "SKIPPED_LOW_SCORE");
+    assert.equal(dbArticle1.postedAt, null);
+    assert.equal(dbArticle1.discordMessageId, null);
+    assert.equal(dbArticle1.discordChannelId, null);
 
     const dbArticle2 = await prisma.article.findUnique({
       where: { id_topic: { id: "hist-2", topic: "tech" } }
@@ -800,4 +801,3 @@ test("Topic Keyword Management and Refresh Lookback Suite", async (t) => {
     }
   });
 });
-
