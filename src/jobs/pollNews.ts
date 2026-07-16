@@ -572,6 +572,12 @@ export async function pollNews(
           routingMetadata: finalRoutingMetadata,
         });
 
+        const outcomeRoutingMetadata = {
+          ...finalRoutingMetadata,
+          route: outcome.finalRoute,
+          routeReason: outcome.finalReason,
+        };
+
         await saveCurationLog({
           title: candidate.event.title,
           url: candidate.event.url,
@@ -596,7 +602,7 @@ export async function pollNews(
               undefined,
               undefined,
               null,
-              finalRoutingMetadata
+              outcomeRoutingMetadata
             );
           } else if (outcome.finalStatus === ARTICLE_STATUSES.SKIPPED_FILTERED) {
             await saveArticle(
@@ -608,7 +614,7 @@ export async function pollNews(
               undefined,
               undefined,
               null,
-              finalRoutingMetadata
+              outcomeRoutingMetadata
             );
           }
           counts[topic].skipped++;
